@@ -145,6 +145,32 @@ code{background:var(--bg);border:1px solid var(--line);padding:2px 6px;border-ra
   .plate circle.seg{transition:stroke .25s}
 }
 button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+
+/* v2: extras, peso */
+.stats{grid-template-columns:repeat(4,1fr)}
+.stat b{font-size:20px}.stat span{font-size:11px}
+.stats.auto{grid-template-columns:repeat(auto-fit,minmax(86px,1fr))}
+.chip.warn{background:var(--warn-bg);color:var(--warn)}
+.xb{font-size:12px;font-weight:700;color:var(--warn);background:var(--warn-bg);padding:2px 7px;border-radius:99px;flex:none}
+.extra{display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:var(--warn-bg);border:0;border-radius:var(--radius);padding:12px 14px;margin:8px 0}
+.extra .tm{font-variant-numeric:tabular-nums;font-weight:700;color:var(--warn)}
+.extra .ti{font-weight:650;font-size:15px}.extra .sb2{font-size:13px;color:var(--warn)}
+.sec{margin:20px 0 2px}.sec h2{margin:0}
+.opts{display:flex;gap:6px;margin-top:8px}
+.opts button{flex:1;border:1px solid var(--line);background:var(--bg);border-radius:12px;padding:10px 6px;font-weight:600;font-size:14px;color:var(--muted)}
+.opts button.on{background:var(--warn);border-color:var(--warn);color:#fff}
+.seg{display:flex;background:var(--line);border-radius:12px;padding:3px;gap:3px;margin:14px 0 4px}
+.seg button{flex:1;border:0;background:none;padding:8px 4px;border-radius:10px;font-weight:600;font-size:13px;color:var(--muted)}
+.seg button.on{background:var(--card);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.chart{width:100%;height:auto;display:block}
+.chart .gl{stroke:var(--line);stroke-width:1}
+.chart .ax{fill:var(--muted);font-size:10px;font-family:var(--font)}
+.chart .ln{fill:none;stroke-width:2.5;stroke-linejoin:round;stroke-linecap:round}
+.readout{font-size:14px;color:var(--muted);margin-top:2px}.readout b{color:var(--ink);font-size:17px}
+.big{font-size:38px;font-weight:700;letter-spacing:-.03em;line-height:1}.big small{font-size:18px;font-weight:600;color:var(--muted)}
+.formula{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:10px 0 0;font-size:14px;overflow-x:auto}
+.mrow{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;margin:8px 0}
+.mrow .d{width:92px;font-weight:600;font-size:14px;flex:none}.mrow .v{flex:1;font-size:14px}
 </style>
 </head>
 <body>
@@ -163,6 +189,9 @@ const toMin = t => { const [h,m] = String(t).split(':').map(Number); return (h||
 const minToTime = m => `${pad(Math.floor(m/60)%24)}:${pad(m%60)}`;
 const nowMin = () => { const n = new Date(); return n.getHours()*60 + n.getMinutes(); };
 const fmtDur = m => m < 60 ? `${m} min` : `${Math.floor(m/60)}h${pad(m%60)}`;
+const numv = v => { const n = parseFloat(String(v).replace(',', '.')); return isFinite(n) ? n : null; };
+const fmtN = (x, d = 1) => Number(x).toLocaleString('pt-BR', { minimumFractionDigits: d, maximumFractionDigits: d });
+const fmtDate = k => { const [y,m,d] = k.split('-'); return `${d}/${m}/${y}`; };
 const DOW = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
 const DOW_LONG = ['domingo','segunda-feira','terça-feira','quarta-feira','quinta-feira','sexta-feira','sábado'];
 const dayLabel = d => `${DOW[d.getDay()]} ${pad(d.getDate())}/${pad(d.getMonth()+1)}`;
@@ -206,10 +235,15 @@ const DEFAULT_STATE = () => ({
     topic: randTopic(),
     closeOn: true,
     closeTime: '23:30',
+    extrasCount: false,       // extras entram na meta do dia?
+    extrasMax: 1,             // máximo de extras por dia (se contar)
+    height: null,             // altura em cm (para o IMC)
   },
   meals: DEFAULT_MEALS(),
   log: {},                    // log[YYYY-MM-DD][mealId] = {status:'done'|'skipped', at:'HH:MM'}
   scheduled: {},              // lembretes já agendados no ntfy
+  extras: {},                 // extras[YYYY-MM-DD] = [{id, at, note, size}]
+  body: [],                   // [{date, w, bf}] pesagens
 });
 
 const STORE = 'dieta-app-v1';
@@ -262,13 +296,15 @@ function dayStats(key){
     lateMin: items.reduce((a,i) => a + i.late, 0),
   };
   s.done = s.ontime + s.late;
+  s.extras = (state.extras[key] || []).slice().sort((a,b) => toMin(a.at) - toMin(b.at));
+  s.extraN = s.extras.length;
   s.ratio = s.planned ? s.done / s.planned : 0;
   s.pct = Math.round(s.ratio * 100);
   s.goal = evalGoal(s);
   return s;
 }
 
-function evalGoal(s){
+function baseGoal(s){
   const g = state.settings, v = Number(g.goalValue) || 0, final = !s.isToday;
   if(!s.planned) return { st:'none' };
   const problems = s.late + s.skipped + s.missed + s.overdue;
@@ -295,6 +331,12 @@ function evalGoal(s){
   return { st:'none' };
 }
 
+function evalGoal(s){
+  const r = baseGoal(s), g = state.settings;
+  if(r.st !== 'none' && g.extrasCount && s.extraN > (Number(g.extrasMax) || 0)) return { st:'failed', byExtras:true };
+  return r;
+}
+
 function goalText(){
   const g = state.settings, v = Number(g.goalValue) || 0;
   return {
@@ -318,7 +360,8 @@ function verdict(s){
   if(!s.planned) return 'Nenhuma refeição planejada neste dia.';
   const st = s.goal.st;
   if(s.isToday && st === 'progress') return 'O dia está em andamento.';
-  if(st === 'met') return s.ontime === s.planned ? 'Dia perfeito: tudo feito no horário.' : 'Você bateu a meta do dia.';
+  if(s.goal.byExtras) return 'Você passou do limite de refeições extras.';
+  if(st === 'met') return (s.ontime === s.planned && !s.extraN) ? 'Dia perfeito: tudo feito no horário.' : 'Você bateu a meta do dia.';
   return s.isToday ? 'A meta de hoje já não dá para bater.' : 'Dessa vez a meta não foi atingida.';
 }
 function summaryLines(s){
@@ -331,6 +374,8 @@ function summaryLines(s){
   if(s.missed) L.push(`${pl(s.missed, 'refeição sem registro', 'refeições sem registro')}.`);
   if(s.overdue) L.push(`${pl(s.overdue, 'refeição aguardando seu check', 'refeições aguardando seu check')}.`);
   if(s.upcoming + s.due) L.push(`Ainda ${s.upcoming + s.due === 1 ? 'falta' : 'faltam'} ${s.upcoming + s.due} no dia.`);
+  if(s.extraN) L.push(`${pl(s.extraN, 'refeição extra', 'refeições extras')} fora da dieta (${s.extras.map(e => e.at).join(', ')}).`);
+  if(s.extraN && state.settings.extrasCount) L.push(`Limite de extras por dia: ${state.settings.extrasMax}.`);
   return L;
 }
 
@@ -351,6 +396,7 @@ function statusText(it){
    Interface
    ============================================================ */
 let view = { tab:'today', day:null };
+const ui = { range:'90', sel:{} };
 const openTips = new Set(), openMeals = new Set();
 let modalCtx = null, notice = {};
 
@@ -358,11 +404,12 @@ const ICONS = {
   today: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.7 2.7L16 9.5"/></svg>',
   history: '<svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>',
   settings: '<svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>',
+  weight: '<svg viewBox="0 0 24 24"><path d="M4 18l4.5-6 3.5 3.5L16 9l4 5"/><path d="M4 21h16"/></svg>',
   check: '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
 };
 
 function renderTabs(){
-  const tabs = [['today','Hoje'],['history','Histórico'],['settings','Ajustes']];
+  const tabs = [['today','Hoje'],['history','Histórico'],['weight','Peso'],['settings','Ajustes']];
   $tabs.innerHTML = tabs.map(([k,l]) =>
     `<button class="${view.tab===k?'on':''}" data-act="tab" data-tab="${k}">${ICONS[k]}${l}</button>`).join('');
 }
@@ -396,6 +443,16 @@ function mealList(s){
       <button class="more" data-act="more" data-id="${m.id}" data-day="${s.key}" aria-label="Mais opções">⋯</button>
     </div>`;
   }).join('');
+}
+
+const XSIZE = { pequena:'Beliscada', lanche:'Lanche', grande:'Refeição completa' };
+const extraChip = s => s.extraN ? `<span class="chip warn" style="margin-left:6px">${pl(s.extraN, 'extra', 'extras')}</span>` : '';
+function extrasBlock(s){
+  const list = s.extras.map(e => `<button class="extra" data-act="xedit" data-day="${s.key}" data-id="${e.id}">
+    <span class="tm">${e.at}</span><div><div class="ti">${esc(e.note) || 'Fora da dieta'}</div><div class="sb2">${XSIZE[e.size] || 'Lanche'}</div></div></button>`).join('');
+  return `<div class="sec"><h2>Fora da dieta</h2></div>
+    ${list || '<div class="sub" style="margin:6px 0">Nenhuma refeição extra registrada.</div>'}
+    <button class="btn block" data-act="xadd" data-day="${s.key}">+ Registrar refeição extra</button>`;
 }
 
 function summaryCard(s, title){
@@ -433,12 +490,13 @@ function renderToday(){
         <div>
           <div class="big">${s.pct}<small>%</small></div>
           <div class="sub">${s.done} de ${s.planned} refeições</div>
-          ${goalChip(s.goal.st, true)}
+          ${goalChip(s.goal.st, true)}${extraChip(s)}
         </div>
       </div>
       ${next ? `<div class="next">${next}</div>` : ''}
     </div>
     ${mealList(s)}
+    ${extrasBlock(s)}
     ${summaryCard(s, 'Resumo do dia')}
   `;
 }
@@ -464,8 +522,9 @@ function renderHistory(){
       <div class="sub">${DOW_LONG[d.getDay()]}</div>
       <div class="card"><div class="plate">${plateSVG(s)}
         <div><div class="big">${s.pct}<small>%</small></div>
-        <div class="sub">${s.done} de ${s.planned} refeições</div>${goalChip(s.goal.st, s.isToday)}</div></div></div>
+        <div class="sub">${s.done} de ${s.planned} refeições</div>${goalChip(s.goal.st, s.isToday)}${extraChip(s)}</div></div></div>
       ${mealList(s)}
+      ${extrasBlock(s)}
       ${summaryCard(s, 'Resumo')}`;
   }
   const keys = trackedDays(14);
@@ -473,6 +532,7 @@ function renderHistory(){
   const week = stats.slice(0, 7).filter(x => x.planned);
   const avg = week.length ? Math.round(week.reduce((a,x) => a + x.pct, 0) / week.length) : 0;
   const met = week.filter(x => x.goal.st === 'met').length;
+  const extras7 = stats.slice(0, 7).reduce((a, x) => a + x.extraN, 0);
   // sequência: dias seguidos com meta atingida (hoje só conta se já atingiu)
   let streak = 0;
   for(let i = 0; i < stats.length; i++){
@@ -488,6 +548,7 @@ function renderHistory(){
       <span class="d">${x.isToday ? 'Hoje' : dayLabel(d)}</span>
       <span class="bar"><i style="width:${x.pct}%"></i></span>
       <span class="p">${x.planned ? x.pct + '%' : '–'}</span>
+      ${x.extraN ? `<span class="xb">+${x.extraN}</span>` : ''}
       <span class="dot ${x.goal.st}" title="${x.goal.st}"></span>
     </button>`;
   }).join('');
@@ -498,6 +559,7 @@ function renderHistory(){
       <div class="stat"><b>${avg}%</b><span>média 7 dias</span></div>
       <div class="stat"><b>${met}/${week.length}</b><span>dias com meta</span></div>
       <div class="stat"><b>${streak}</b><span>${streak === 1 ? 'dia seguido' : 'dias seguidos'}</span></div>
+      <div class="stat"><b>${extras7}</b><span>extras (7 dias)</span></div>
     </div>
     <div style="margin-top:16px">${rows}</div>
     <p class="note">Toque em um dia para ver ou corrigir os registros.</p>`;
@@ -555,6 +617,15 @@ function renderSettings(){
     </div>
 
     <div class="card">
+      <h2>Refeições extras</h2>
+      <div class="switch"><span>Contar extras na meta do dia</span>
+        <input type="checkbox" data-set="extrasCount" ${g.extrasCount?'checked':''}></div>
+      ${g.extrasCount ? `<label class="f">Máximo de extras por dia</label>
+        <input type="number" inputmode="numeric" min="0" max="20" data-set="extrasMax" value="${g.extrasMax}">` : ''}
+      <p class="note">Desligado: as extras só aparecem no resumo e no histórico. Ligado: passar do máximo derruba a meta do dia, mesmo com todas as refeições feitas.</p>
+    </div>
+
+    <div class="card">
       <h2>Lembretes</h2>
       <div class="switch"><span>Enviar notificações</span>
         <input type="checkbox" data-set="ntfyOn" ${g.ntfyOn?'checked':''}></div>
@@ -601,12 +672,132 @@ function renderSettings(){
 
 function render(){
   renderTabs();
-  $app.innerHTML = view.tab === 'today' ? renderToday() : view.tab === 'history' ? renderHistory() : renderSettings();
+  $app.innerHTML = view.tab === 'today' ? renderToday() : view.tab === 'history' ? renderHistory() : view.tab === 'weight' ? renderWeight() : renderSettings();
+}
+
+/* ---------- Peso ---------- */
+const bodySorted = () => state.body.slice().sort((a, b) => a.date.localeCompare(b.date));
+function imcInfo(w){
+  const h = state.settings.height; if(!h) return null;
+  const i = w / ((h / 100) ** 2);
+  const c = i < 18.5 ? ['Abaixo do peso','warn'] : i < 25 ? ['Peso normal','met'] : i < 30 ? ['Sobrepeso','warn']
+    : i < 35 ? ['Obesidade grau I','failed'] : i < 40 ? ['Obesidade grau II','failed'] : ['Obesidade grau III','failed'];
+  return { i, label:c[0], cls:c[1] };
+}
+function chartCard(id, title, pts, unit, d, color, minPad){
+  if(!pts.length) return `<div class="card"><h2>${title}</h2><div class="sub">Sem medições neste período.</div></div>`;
+  const sel = pts.find(p => p.k === ui.sel[id]) || pts[pts.length - 1];
+  const W = 340, H = 180, L = 40, R = 14, T = 14, B = 26;
+  const ys = pts.map(p => p.y); let lo = Math.min(...ys), hi = Math.max(...ys);
+  const pad = Math.max((hi - lo) * 0.25, minPad); lo -= pad; hi += pad;
+  const t0 = pts[0].t, t1 = pts[pts.length - 1].t;
+  const X = t => t1 === t0 ? L + (W - L - R) / 2 : L + (t - t0) / (t1 - t0) * (W - L - R);
+  const Y = y => T + (1 - (y - lo) / (hi - lo)) * (H - T - B);
+  const grid = [0, .5, 1].map(f => { const v = lo + (hi - lo) * f, y = Y(v).toFixed(1);
+    return `<line class="gl" x1="${L}" x2="${W - R}" y1="${y}" y2="${y}"/><text class="ax" x="${L - 6}" y="${(+y + 3).toFixed(1)}" text-anchor="end">${fmtN(v, d)}</text>`; }).join('');
+  const path = pts.map((p, i) => `${i ? 'L' : 'M'}${X(p.t).toFixed(1)} ${Y(p.y).toFixed(1)}`).join(' ');
+  const dots = pts.map(p => `<circle cx="${X(p.t).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="${p.k === sel.k ? 6 : 3.5}" style="fill:${color}${p.k === sel.k ? ';stroke:var(--card);stroke-width:2' : ''}"/>`).join('');
+  const hits = pts.map(p => `<circle cx="${X(p.t).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="16" fill="transparent" data-act="pt" data-c="${id}" data-k="${p.k}" style="cursor:pointer"/>`).join('');
+  const short = k => k.slice(8) + '/' + k.slice(5, 7);
+  const xl = pts.length > 1
+    ? `<text class="ax" x="${L}" y="${H - 6}">${short(pts[0].k)}</text><text class="ax" x="${W - R}" y="${H - 6}" text-anchor="end">${short(pts[pts.length - 1].k)}</text>`
+    : `<text class="ax" x="${L + (W - L - R) / 2}" y="${H - 6}" text-anchor="middle">${short(pts[0].k)}</text>`;
+  const dv = pts[pts.length - 1].y - pts[0].y;
+  const delta = pts.length > 1 ? `<div class="sub">No período: ${dv >= 0 ? '+' : '−'}${fmtN(Math.abs(dv), d)} ${unit}</div>` : '';
+  return `<div class="card"><h2>${title}</h2>
+    <svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Gráfico de ${title}">${grid}<path class="ln" d="${path}" style="stroke:${color}"/>${dots}${xl}${hits}</svg>
+    <div class="readout"><b>${fmtN(sel.y, d)} ${unit}</b> · ${fmtDate(sel.k)}</div>${delta}</div>`;
+}
+function renderWeight(){
+  const all = bodySorted(), h = state.settings.height;
+  const last = all[all.length - 1], prev = all[all.length - 2];
+  let summary = '';
+  if(last){
+    const im = imcInfo(last.w), hasBF = last.bf != null;
+    const fat = hasBF ? last.w * last.bf / 100 : null, lean = hasBF ? last.w - fat : null;
+    const dl = prev ? last.w - prev.w : null;
+    summary = `<div class="card">
+      <div class="sub">${fmtDate(last.date)}</div>
+      <div class="big">${fmtN(last.w)} <small>kg</small></div>
+      ${dl != null ? `<div class="sub">${dl >= 0 ? '+' : '−'}${fmtN(Math.abs(dl))} kg desde ${fmtDate(prev.date)}</div>` : ''}
+      <div class="stats auto" style="margin-top:14px">
+        ${im ? `<div class="stat"><b>${fmtN(im.i)}</b><span>IMC</span></div>` : ''}
+        ${hasBF ? `<div class="stat"><b>${fmtN(last.bf)}%</b><span>gordura</span></div>
+          <div class="stat"><b>${fmtN(fat)}</b><span>massa gorda (kg)</span></div>
+          <div class="stat"><b>${fmtN(lean)}</b><span>massa magra (kg)</span></div>` : ''}
+      </div>
+      ${im ? `<div style="margin-top:12px"><span class="chip ${im.cls}" style="margin-top:0">${im.label}</span></div>
+        <div class="formula">IMC = peso ÷ altura² = ${fmtN(last.w)} ÷ (${fmtN(h / 100, 2)})² = <b>${fmtN(im.i)} kg/m²</b><br>
+          <span class="sub">Faixa de peso normal (IMC 18,5 a 24,9) para ${fmtN(h, 0)} cm: ${fmtN(18.5 * (h/100) ** 2)} a ${fmtN(24.9 * (h/100) ** 2)} kg.</span></div>
+        <p class="note">O IMC não diferencia músculo de gordura. Acompanhe também o % de gordura e a massa magra.</p>`
+        : `<p class="note">Informe sua altura abaixo para calcular o IMC.</p>`}
+    </div>`;
+  } else {
+    summary = `<div class="card"><div class="sub">Nenhuma medição ainda. Toque em "Nova medição" e informe o peso e, se tiver, o % de gordura da sua última avaliação.</div></div>`;
+  }
+
+  let rng = all;
+  if(ui.range !== 'all'){ const d = new Date(); d.setDate(d.getDate() - Number(ui.range)); const cut = dayKey(d); rng = all.filter(x => x.date >= cut); }
+  const mk = (arr, f) => arr.map(x => ({ k:x.date, t:parseKey(x.date).getTime(), y:f(x) }));
+  const withBF = rng.filter(x => x.bf != null);
+  const ranges = [['30','30 dias'],['90','90 dias'],['365','1 ano'],['all','Tudo']];
+
+  const list = all.slice().reverse().map(x => {
+    const im = imcInfo(x.w);
+    return `<button class="mrow" data-act="bedit" data-id="${x.date}"><span class="d">${fmtDate(x.date)}</span>
+      <span class="v"><b>${fmtN(x.w)} kg</b>${x.bf != null ? ` · ${fmtN(x.bf)}% gordura` : ''}</span>${im ? `<span class="sub">IMC ${fmtN(im.i)}</span>` : ''}</button>`;
+  }).join('');
+
+  return `<h1>Peso</h1>
+    <div class="sub">Peso, IMC e % de gordura</div>
+    ${summary}
+    <button class="btn primary block" data-act="badd">+ Nova medição</button>
+    <div class="card" style="margin-top:14px"><label class="f" style="margin-top:0">Altura (cm)</label>
+      <input type="number" inputmode="decimal" step="any" data-set="height" value="${h ?? ''}" placeholder="ex.: 175"></div>
+    ${all.length ? `<div class="seg">${ranges.map(([k, l]) => `<button class="${ui.range === k ? 'on' : ''}" data-act="range" data-r="${k}">${l}</button>`).join('')}</div>
+      ${chartCard('w', 'Peso', mk(rng, x => x.w), 'kg', 1, 'var(--accent)', 0.5)}
+      ${withBF.length ? chartCard('f', '% de gordura', mk(withBF, x => x.bf), '%', 1, 'var(--warn)', 0.5) : ''}
+      ${withBF.length ? chartCard('m', 'Massa magra', mk(withBF, x => x.w * (1 - x.bf / 100)), 'kg', 1, 'var(--ok)', 0.5) : ''}
+      <div class="card"><h2>Medições</h2>${list}<p class="note">Toque em uma medição para editar ou excluir.</p></div>` : ''}`;
+}
+
+function renderBodyModal(){
+  const e = modalCtx.id ? state.body.find(x => x.date === modalCtx.id) : null;
+  const all = bodySorted(), lastW = all.length ? all[all.length - 1].w : '';
+  const today = dayKey(new Date());
+  $modal.className = 'show';
+  $modal.innerHTML = `<div class="sheet">
+    <h2>${e ? 'Editar medição' : 'Nova medição'}</h2>
+    <label class="f">Data</label><input type="date" id="bDate" value="${e ? e.date : today}" max="${today}">
+    <label class="f">Peso (kg)</label><input type="number" id="bW" inputmode="decimal" step="0.1" value="${e ? e.w : lastW}">
+    <label class="f">% de gordura (opcional)</label><input type="number" id="bF" inputmode="decimal" step="0.1" value="${e && e.bf != null ? e.bf : ''}">
+    <button class="btn primary block" data-act="bsave">Salvar</button>
+    ${e ? '<button class="btn block danger" data-act="bdel">Excluir medição</button>' : ''}
+    <button class="btn block" data-act="mclose">Cancelar</button></div>`;
+}
+function renderExtraModal(){
+  const arr = state.extras[modalCtx.key] || [];
+  const e = modalCtx.id ? arr.find(x => x.id === modalCtx.id) : null;
+  if(modalCtx.size === undefined) modalCtx.size = e ? e.size : 'lanche';
+  const isToday = modalCtx.key === dayKey(new Date());
+  $modal.className = 'show';
+  $modal.innerHTML = `<div class="sheet">
+    <h2>Refeição extra</h2>
+    <div class="sub">${dayLabel(parseKey(modalCtx.key))} · fora do plano</div>
+    <label class="f">Que horas?</label><input type="time" id="xTime" value="${e ? e.at : (isToday ? minToTime(nowMin()) : '12:00')}">
+    <label class="f">O que foi? (opcional)</label><input id="xNote" placeholder="ex.: pizza, sorvete, chocolate" value="${esc(e ? e.note : '')}">
+    <label class="f">Tamanho</label>
+    <div class="opts">${Object.entries(XSIZE).map(([k, l]) => `<button class="${modalCtx.size === k ? 'on' : ''}" data-act="xsize" data-s="${k}">${l}</button>`).join('')}</div>
+    <button class="btn primary block" data-act="xsave">Salvar</button>
+    ${e ? '<button class="btn block danger" data-act="xdel">Excluir</button>' : ''}
+    <button class="btn block" data-act="mclose">Cancelar</button></div>`;
 }
 
 /* Modal para registrar horário / pular / limpar */
 function renderModal(){
   if(!modalCtx){ $modal.className = ''; $modal.innerHTML = ''; return; }
+  if(modalCtx.kind === 'extra') return renderExtraModal();
+  if(modalCtx.kind === 'body') return renderBodyModal();
   const m = state.meals.find(x => x.id === modalCtx.id); if(!m){ modalCtx = null; return renderModal(); }
   const e = (state.log[modalCtx.key] || {})[m.id];
   const isToday = modalCtx.key === dayKey(new Date());
@@ -647,10 +838,10 @@ document.addEventListener('click', async ev => {
       const cur = (state.log[key] || {})[id];
       if(cur && cur.status === 'done'){ setLog(key, id, null); render(); }
       else if(key === today){ setLog(key, id, { status:'done', at: minToTime(nowMin()) }); render(); schedule(); }
-      else { modalCtx = { key, id }; renderModal(); }
+      else { modalCtx = { kind:'meal', key, id }; renderModal(); }
       break;
     }
-    case 'more': modalCtx = { key, id }; renderModal(); break;
+    case 'more': modalCtx = { kind:'meal', key, id }; renderModal(); break;
     case 'msave': {
       const t = $('#modalTime').value || minToTime(nowMin());
       setLog(modalCtx.key, modalCtx.id, { status:'done', at:t }); modalCtx = null; renderModal(); render(); break;
@@ -659,6 +850,40 @@ document.addEventListener('click', async ev => {
     case 'mclear': setLog(modalCtx.key, modalCtx.id, null); modalCtx = null; renderModal(); render(); break;
     case 'mclose': modalCtx = null; renderModal(); break;
 
+    case 'xadd': modalCtx = { kind:'extra', key, id:null }; renderModal(); break;
+    case 'xedit': modalCtx = { kind:'extra', key, id }; renderModal(); break;
+    case 'xsize':
+      modalCtx.size = el.dataset.s;
+      document.querySelectorAll('.opts button').forEach(b => b.classList.toggle('on', b === el)); break;
+    case 'xsave': {
+      const at = $('#xTime').value || minToTime(nowMin()), note = $('#xNote').value.trim(), size = modalCtx.size || 'lanche';
+      const arr = state.extras[modalCtx.key] = state.extras[modalCtx.key] || [];
+      if(modalCtx.id){ const e = arr.find(x => x.id === modalCtx.id); if(e) Object.assign(e, { at, note, size }); }
+      else arr.push({ id:uid(), at, note, size });
+      save(); modalCtx = null; renderModal(); render(); break;
+    }
+    case 'xdel': {
+      state.extras[modalCtx.key] = (state.extras[modalCtx.key] || []).filter(x => x.id !== modalCtx.id);
+      if(!state.extras[modalCtx.key].length) delete state.extras[modalCtx.key];
+      save(); modalCtx = null; renderModal(); render(); break;
+    }
+    case 'badd': modalCtx = { kind:'body', id:null }; renderModal(); break;
+    case 'bedit': modalCtx = { kind:'body', id }; renderModal(); break;
+    case 'bsave': {
+      const date = $('#bDate').value, w = numv($('#bW').value), bfRaw = $('#bF').value.trim(), bf = bfRaw === '' ? null : numv(bfRaw);
+      if(!date){ alert('Informe a data.'); break; }
+      if(w == null || w < 20 || w > 400){ alert('Informe um peso válido (em kg).'); break; }
+      if(bfRaw !== '' && (bf == null || bf < 2 || bf > 70)){ alert('O % de gordura deve ficar entre 2 e 70.'); break; }
+      if(modalCtx.id && modalCtx.id !== date) state.body = state.body.filter(x => x.date !== modalCtx.id);
+      state.body = state.body.filter(x => x.date !== date);
+      state.body.push({ date, w, bf });
+      save(); modalCtx = null; renderModal(); render(); break;
+    }
+    case 'bdel':
+      if(confirm('Excluir esta medição?')){ state.body = state.body.filter(x => x.date !== modalCtx.id); save(); modalCtx = null; renderModal(); render(); }
+      break;
+    case 'range': ui.range = el.dataset.r; render(); break;
+    case 'pt': ui.sel[el.dataset.c] = el.dataset.k; render(); break;
     case 'mopen': openMeals.has(id) ? openMeals.delete(id) : openMeals.add(id); render(); break;
     case 'dow': {
       const m = state.meals.find(x => x.id === id), d = Number(el.dataset.d);
@@ -711,7 +936,7 @@ document.addEventListener('click', async ev => {
       render(); break;
     case 'wipe':
       if(confirm('Apagar todo o histórico de checks? As configurações são mantidas.')){
-        state.log = {}; state.startDate = dayKey(new Date()); save(); render();
+        state.log = {}; state.extras = {}; state.startDate = dayKey(new Date()); save(); render();
       }
       break;
   }
@@ -722,7 +947,8 @@ document.addEventListener('change', ev => {
   if(el.dataset.set){
     const k = el.dataset.set;
     let v = el.type === 'checkbox' ? el.checked : el.value;
-    if(['goalValue','tolerance'].includes(k)) v = Math.max(0, Number(v) || 0);
+    if(['goalValue','tolerance','extrasMax'].includes(k)) v = Math.max(0, Number(v) || 0);
+    if(k === 'height'){ const n = numv(v); v = n && n > 50 && n < 250 ? n : null; }
     if(k === 'server') v = String(v).trim() || 'https://ntfy.sh';
     state.settings[k] = v; save(); render();
     if(['ntfyOn','closeOn','closeTime','server'].includes(k)) schedule();
