@@ -83,7 +83,7 @@ nav button.on{color:var(--accent);background:var(--accent-soft)}
 .meal .status{font-size:13px;margin-top:2px;color:var(--muted)}
 .st-ontime .status{color:var(--ok)} .st-late .status{color:var(--warn)}
 .st-overdue .status,.st-missed .status{color:var(--bad)} .st-due .status{color:var(--accent);font-weight:600}
-.meal .tip{display:none;font-size:14px;color:var(--muted);margin-top:8px;padding-top:8px;border-top:1px dashed var(--line)}
+.meal .tip{display:none;white-space:pre-line;font-size:14px;color:var(--muted);margin-top:8px;padding-top:8px;border-top:1px dashed var(--line)}
 .meal.open .tip{display:block}
 .meal .more{flex:none;border:0;background:none;color:var(--muted);font-size:22px;line-height:1;padding:4px 8px;border-radius:10px}
 
@@ -171,6 +171,24 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .formula{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:10px 0 0;font-size:14px;overflow-x:auto}
 .mrow{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;margin:8px 0}
 .mrow .d{width:92px;font-weight:600;font-size:14px;flex:none}.mrow .v{flex:1;font-size:14px}
+
+/* v3: energia */
+details.nt summary{cursor:pointer;color:var(--accent);font-weight:600;font-size:14px;padding:6px 0}
+.ebar{display:flex;align-items:center;gap:10px;margin:9px 0;font-size:14px}
+.ebar .lb{width:122px;flex:none;color:var(--muted);font-size:13px}
+.ebar .tr{flex:1;height:12px;background:var(--line);border-radius:99px;overflow:hidden}
+.ebar .tr i{display:block;height:100%;border-radius:99px;background:var(--idle)}
+.ebar.get .tr i{background:var(--accent)}.ebar.plan .tr i{background:var(--warn)}.ebar.real .tr i{background:var(--ok)}
+.ebar b{width:56px;text-align:right;font-variant-numeric:tabular-nums}
+
+/* v4: treino */
+.train{display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px;margin:12px 0}
+.train .tdot{flex:none;width:34px;height:34px;border-radius:50%;border:2px solid var(--idle);display:grid;place-items:center;color:#fff}
+.train .tdot svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+.train b{display:block;font-size:16px}.train .sub{display:block;font-size:13px}
+.train.on{background:var(--accent-soft);border-color:var(--accent)}
+.train.on .tdot{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.tb{font-size:11px;font-weight:700;color:var(--accent);background:var(--accent-soft);padding:2px 7px;border-radius:99px;flex:none}
 </style>
 </head>
 <body>
@@ -207,21 +225,59 @@ const randTopic = () => {
    Dados (valores iniciais baseados no plano alimentar em PDF)
    ============================================================ */
 const ALL = [0,1,2,3,4,5,6], WEEK = [1,2,3,4,5];
+const PLAN_V = 2;   // 2 = plano de fev/2024
+// Horários sugeridos (o PDF não traz horários). kcal = ESTIMATIVA (média das opções de cada refeição).
 const DEFAULT_MEALS = () => [
-  { id:'cafe',   name:'Café da manhã',   notif:'Hora do café da manhã',   time:'07:00', days:ALL,  enabled:true,
-    tip:'Carboidrato + proteína: pão com ovo, crepioca, tapioca crocante, bruschetta, misto quente, muffin salgado ou pão de queijo, com café com leite desnatado.' },
-  { id:'lanche', name:'Lanche da manhã', notif:'Hora do lanche da manhã', time:'09:00', days:ALL,  enabled:true,
-    tip:'Bowl de iogurte, panqueca de banana, crepe de chocolate ou mingau de aveia, com ½ dose de whey e uma porção de fruta.' },
-  { id:'almoco', name:'Almoço',          notif:'Hora do almoço',          time:'12:00', days:ALL,  enabled:true,
-    tip:'Cereal (arroz, macarrão, batata) + 2 conchas de feijão + 100 g de proteína + legumes e salada à vontade.' },
-  { id:'fruta',  name:'Fruta',           notif:'Hora da fruta',           time:'14:00', days:ALL,  enabled:true,
-    tip:'1 porção (200 g) de fruta, de preferência cítrica. Se estiver em casa, pode comer a pipoca da ceia agora.' },
-  { id:'jantar', name:'Jantar',          notif:'Hora do jantar',          time:'17:00', days:ALL,  enabled:true,
-    tip:'Repita o almoço. Nos fins de semana: pizza de pão sírio, hambúrguer caseiro ou pastel.' },
-  { id:'pre',    name:'Pré-treino',      notif:'Hora do pré-treino',      time:'20:00', days:WEEK, enabled:true,
-    tip:'Carboidrato simples e leve: rabanada saudável ou bowl de frutas. Não esqueça a creatina.' },
-  { id:'pos',    name:'Pós-treino',      notif:'Hora do pós-treino',      time:'22:00', days:WEEK, enabled:true,
-    tip:'Batida de frutas com leite desnatado, banana e ½ dose de whey (+ pipoca, se ainda não comeu).' },
+  { id:'cafe', name:'Café da manhã', notif:'Hora do café da manhã', time:'07:00', days:ALL, enabled:true, kcal:410,
+    short:'Proteína + fibra: ovos e pão integral. Mais fome? Adicione 1 a 2 claras.',
+    tip:`Meta: começar o dia com proteínas e fibras para ficar saciado.
+• Pão com ovos: pão integral 2 fatias (50g), ovos 2 un (90g), requeijão light 1 col sopa (20g), café com leite 1 copo (200 ml).
+• Pão de queijo de frigideira: goma de tapioca 3 col sopa (30g), ovos 2 un (90g), mussarela 1 fatia (20g), café com leite 1 copo.
+• Wrap com ovos: tortilha 1 un (60g), ovos 2 un (90g), mussarela 1 fatia (20g), tomate e orégano a gosto, café com leite 1 copo.
+Mais fome: adicione 1 a 2 claras extras.
+Fontes obrigatórias: proteína (ovos) e fibras (pão integral).
+Estimativa: ≈ 410 kcal (média das opções).` },
+  { id:'colacao', name:'Colação', notif:'Hora da colação', time:'09:00', days:ALL, enabled:true, kcal:230,
+    short:'Vitamina de frutas com leite desnatado e whey (20 g).',
+    tip:`Meta: refeição leve e equilibrada para não chegar com muita fome no almoço.
+• Vitamina de frutas (opção única): leite desnatado 1 copo (200 ml), frutas variadas 1 porção (150g; banana 100g), whey protein 1 dosador (20g). Bata até ficar cremoso.
+Fora de casa: shake simples de whey (ou leite em pó desnatado 20g) e coma a fruta separada.
+Evite a banana aqui, pois ela entra em outra refeição.
+Estimativa: ≈ 230 kcal.` },
+  { id:'almoco', name:'Almoço', notif:'Hora do almoço', time:'12:00', days:ALL, enabled:true, kcal:590,
+    short:'Porção GRANDE de carne e vegetais, com salada à vontade.',
+    tip:`Meta: porção GRANDE de carnes e vegetais.
+• Exemplo 1: arroz branco 2 col servir (180g), feijão preto 1 concha cheia (150g), frango grelhado 1 bifão (120g).
+• Exemplo 2: macarrão 2 col servir (180g), feijão preto 1 concha cheia (150g), carne moída 2 col servir (120g).
+• Exemplo 3: batata assada 2 col servir (180g), feijão preto 1 concha cheia (150g), tilápia grelhada 1 bifão (120g).
+Legumes e salada crua: à vontade (BASTANTE).
+Sem leguminosa: aumente o cereal para 220g (batata inglesa: 240g).
+Evite frituras e excesso de queijo. Molhos: tomate, mostarda, espinafre, moranga, molho branco de ricota.
+Estimativa: ≈ 590 kcal (média dos exemplos).` },
+  { id:'lanchet', name:'Lanche da tarde', notif:'Hora do lanche da tarde', time:'14:00', days:ALL, enabled:true, kcal:320,
+    short:'Não pule! Sanduíche com pão integral e recheio proteico.',
+    tip:`Meta: NÃO PULE a refeição. Equilibrada e gostosa, para ficar saciado e render nos treinos.
+Base: pão integral 2 fatias (50g) + uma opção:
+• Ovos: 2 ovos cozidos (90g) + requeijão light 1 col sopa (20g) + saladas.
+• Frango: desfiado 4 col sopa (80g) + creme de ricota 1 col sopa (20g) + saladas.
+• Atum: enlatado 4 col sopa (80g) + maionese light 1 col sopa (20g) + saladas.
+• Caprese: ricota 3 fatias (50g) + mussarela 1 fatia (20g) + tomate e orégano.
+• Carne: de gado 4 col sopa (80g) + mussarela 1 fatia (20g) + saladas.
+Dias corridos: sanduíche sem recheio proteico + shake simples de whey.
+Estimativa: ≈ 320 kcal (média das opções).` },
+  { id:'jantar', name:'Jantar', notif:'Hora do jantar', time:'17:00', days:ALL, enabled:true, kcal:590,
+    short:'Repita o almoço (fim de semana: wrap, burguer ou pizza de pão sírio).',
+    tip:`Durante a semana: repita o almoço. Fins de semana:
+• Wrap de Big Mac: tortilha 1 un (60g), carne moída crua 5 col sopa (120g), mussarela 1 fatia (20g), saladas.
+• Burguer caseiro: pão francês 1 un (50g), hambúrguer caseiro 1 un (150g), mussarela 1 fatia (20g), alface e tomate; molhos sem calorias (ketchup e mostarda).
+• Pizza com pão sírio: pão árabe 1 un (60g), molho de tomate 4 col sopa, frango desfiado 5 col sopa (120g), mussarela 2 fatias (30g), brócolis e milho à vontade.
+Estimativa: ≈ 590 kcal na semana (igual ao almoço); fins de semana ≈ 480 a 560 kcal.` },
+  { id:'ceia', name:'Ceia', notif:'Hora da ceia', time:'22:00', days:ALL, enabled:true, kcal:440,
+    short:'Iogurte com frutas ou bolo de banana, com whey.',
+    tip:`Pode ajustar a ordem desta refeição (atenção aos treinos).
+• Iogurte com frutas: iogurte natural 1 pote (170g), banana 1 un (100g), whey 1 dosador (20g), granola 3 col sopa (20g), pasta de amendoim 1 col sobremesa (15g).
+• Bolo de banana: banana 1 un (100g), 1 ovo + 1 clara, aveia em flocos 3 col sopa (20g), whey 1 porção (20g), pasta de amendoim 1 col sobremesa (15g). Amasse parte da banana, misture ovos, aveia, whey e canela, junte fermento (1 col chá) e leve ao microondas 2 a 3 min.
+Estimativa: ≈ 440 kcal (média das opções).` },
 ];
 const DEFAULT_STATE = () => ({
   v: 1,
@@ -238,12 +294,20 @@ const DEFAULT_STATE = () => ({
     extrasCount: false,       // extras entram na meta do dia?
     extrasMax: 1,             // máximo de extras por dia (se contar)
     height: null,             // altura em cm (para o IMC)
+    sex: null,                // 'M' | 'F' (para a TMB)
+    birth: null,              // data de nascimento (para a TMB)
+    fa: 1.55,                 // fator de atividade
+    formula: 'auto',          // auto | mifflin | katch
+    extraKcal: { pequena:150, lanche:300, grande:700 },   // estimativa de kcal por extra
   },
   meals: DEFAULT_MEALS(),
+  planV: PLAN_V,
+  planHistory: [],            // [{until:'YYYY-MM-DD', meals:[...]}] planos anteriores
   log: {},                    // log[YYYY-MM-DD][mealId] = {status:'done'|'skipped', at:'HH:MM'}
   scheduled: {},              // lembretes já agendados no ntfy
   extras: {},                 // extras[YYYY-MM-DD] = [{id, at, note, size}]
   body: [],                   // [{date, w, bf}] pesagens
+  workouts: {},               // workouts[YYYY-MM-DD] = {at}  (dias em que treinou)
 });
 
 const STORE = 'dieta-app-v1';
@@ -252,7 +316,9 @@ function load(){
     const raw = localStorage.getItem(STORE);
     if(raw){
       const s = JSON.parse(raw), d = DEFAULT_STATE();
-      return { ...d, ...s, settings: { ...d.settings, ...(s.settings||{}) } };
+      const out = { ...d, ...s, settings: { ...d.settings, ...(s.settings||{}) } };
+      if(s.planV === undefined) out.planV = 1;   // dados antigos: plano de 2022
+      return out;
     }
   }catch(e){}
   return DEFAULT_STATE();
@@ -264,13 +330,19 @@ save();
 /* ============================================================
    Cálculo do dia
    ============================================================ */
+function mealsFor(key){
+  const h = (state.planHistory || []).slice().sort((a, b) => a.until.localeCompare(b.until));
+  for(const e of h) if(key <= e.until) return e.meals;
+  return state.meals;
+}
+
 function dayStats(key){
   const date = parseKey(key), dow = date.getDay();
   const today = dayKey(new Date());
   const isToday = key === today, isPast = key < today;
   const nm = nowMin(), tol = Number(state.settings.tolerance) || 0;
   const entries = state.log[key] || {};
-  const items = state.meals
+  const items = mealsFor(key)
     .filter(m => m.enabled && m.days.includes(dow))
     .sort((a,b) => toMin(a.time) - toMin(b.time))
     .map(m => {
@@ -409,7 +481,7 @@ const ICONS = {
 };
 
 function renderTabs(){
-  const tabs = [['today','Hoje'],['history','Histórico'],['weight','Peso'],['settings','Ajustes']];
+  const tabs = [['today','Hoje'],['history','Histórico'],['weight','Evolução'],['settings','Ajustes']];
   $tabs.innerHTML = tabs.map(([k,l]) =>
     `<button class="${view.tab===k?'on':''}" data-act="tab" data-tab="${k}">${ICONS[k]}${l}</button>`).join('');
 }
@@ -465,6 +537,22 @@ function summaryCard(s, title){
   </div>`;
 }
 
+function trainBlock(key){
+  const on = !!state.workouts[key], isToday = key === dayKey(new Date());
+  return `<button class="train ${on ? 'on' : ''}" data-act="train" data-day="${key}">
+    <span class="tdot">${on ? ICONS.check : ''}</span>
+    <span><b>${on ? 'Treino feito' : (isToday ? 'Treinei hoje' : 'Treinou neste dia')}</b>
+    <span class="sub">${on ? 'Toque para desmarcar' : (isToday ? 'Toque quando terminar o treino' : 'Toque para marcar')}</span></span></button>`;
+}
+
+function planBanner(){
+  if((state.planV || 1) >= PLAN_V || state.planDismiss) return '';
+  return `<div class="card" style="border-color:var(--accent)"><b>Novo plano alimentar disponível (fev/2024)</b>
+    <div class="sub" style="margin:4px 0 10px">Troca as refeições e os cards pelo plano novo: café, colação, almoço, lanche da tarde, jantar e ceia. Seu histórico antigo é preservado e os horários que você já usa são mantidos.</div>
+    <button class="btn primary block" data-act="applyplan">Aplicar novo plano</button>
+    <button class="btn block" data-act="planlater">Agora não</button></div>`;
+}
+
 function renderToday(){
   const now = new Date(), s = dayStats(dayKey(now));
   let next = '';
@@ -484,6 +572,7 @@ function renderToday(){
     <h1>Hoje</h1>
     <div class="sub">${DOW_LONG[now.getDay()]}, ${pad(now.getDate())}/${pad(now.getMonth()+1)}</div>
     ${warn}
+    ${planBanner()}
     <div class="card">
       <div class="plate">
         ${plateSVG(s)}
@@ -495,6 +584,7 @@ function renderToday(){
       </div>
       ${next ? `<div class="next">${next}</div>` : ''}
     </div>
+    ${trainBlock(s.key)}
     ${mealList(s)}
     ${extrasBlock(s)}
     ${summaryCard(s, 'Resumo do dia')}
@@ -513,6 +603,19 @@ function trackedDays(n){
   return out;
 }
 
+function trainCard(){
+  const keys = trackedDays(30), today = dayKey(new Date());
+  const t7 = keys.slice(0, 7).filter(k => state.workouts[k]).length;
+  const t30 = keys.filter(k => state.workouts[k]).length;
+  const withT = [], without = [];
+  keys.forEach(k => { if(k === today) return; const s = dayStats(k); if(!s.planned) return; (state.workouts[k] ? withT : without).push(s.pct); });
+  const avg = a => Math.round(a.reduce((x, y) => x + y, 0) / a.length);
+  const cmp = (withT.length && without.length)
+    ? `<p class="sub" style="margin:10px 0 0">Dieta em dias de treino: <b>${avg(withT)}%</b> (${pl(withT.length, 'dia', 'dias')}) · em dias sem treino: <b>${avg(without)}%</b> (${pl(without.length, 'dia', 'dias')}).</p>` : '';
+  return `<div class="card"><h2>Treino</h2>
+    <div class="stats auto"><div class="stat"><b>${t7}</b><span>treinos (7 dias)</span></div><div class="stat"><b>${t30}</b><span>treinos (30 dias)</span></div></div>${cmp}</div>`;
+}
+
 function renderHistory(){
   if(view.day){
     const s = dayStats(view.day), d = parseKey(view.day);
@@ -523,6 +626,7 @@ function renderHistory(){
       <div class="card"><div class="plate">${plateSVG(s)}
         <div><div class="big">${s.pct}<small>%</small></div>
         <div class="sub">${s.done} de ${s.planned} refeições</div>${goalChip(s.goal.st, s.isToday)}${extraChip(s)}</div></div></div>
+      ${trainBlock(s.key)}
       ${mealList(s)}
       ${extrasBlock(s)}
       ${summaryCard(s, 'Resumo')}`;
@@ -548,6 +652,7 @@ function renderHistory(){
       <span class="d">${x.isToday ? 'Hoje' : dayLabel(d)}</span>
       <span class="bar"><i style="width:${x.pct}%"></i></span>
       <span class="p">${x.planned ? x.pct + '%' : '–'}</span>
+      ${state.workouts[x.key] ? '<span class="tb">Treino</span>' : ''}
       ${x.extraN ? `<span class="xb">+${x.extraN}</span>` : ''}
       <span class="dot ${x.goal.st}" title="${x.goal.st}"></span>
     </button>`;
@@ -561,6 +666,7 @@ function renderHistory(){
       <div class="stat"><b>${streak}</b><span>${streak === 1 ? 'dia seguido' : 'dias seguidos'}</span></div>
       <div class="stat"><b>${extras7}</b><span>extras (7 dias)</span></div>
     </div>
+    ${trainCard()}
     <div style="margin-top:16px">${rows}</div>
     <p class="note">Toque em um dia para ver ou corrigir os registros.</p>`;
 }
@@ -588,7 +694,9 @@ function renderSettings(){
         <label class="f">Dias da semana</label>
         <div class="dows">${dowButtons(m)}</div>
         <label class="f">O que comer (aparece no card)</label>
-        <textarea data-meal="${m.id}" data-field="tip">${esc(m.tip)}</textarea>
+        <textarea data-meal="${m.id}" data-field="tip" style="min-height:140px">${esc(m.tip)}</textarea>
+        <label class="f">Calorias estimadas da refeição (kcal)</label>
+        <input type="number" inputmode="numeric" min="0" data-meal="${m.id}" data-field="kcal" value="${m.kcal ?? ''}">
         <div class="switch"><span>Refeição ativa</span>
           <input type="checkbox" data-meal="${m.id}" data-field="enabled" ${m.enabled?'checked':''}></div>
         <button class="btn danger block" data-act="mdel" data-id="${m.id}">Excluir refeição</button>
@@ -622,6 +730,12 @@ function renderSettings(){
         <input type="checkbox" data-set="extrasCount" ${g.extrasCount?'checked':''}></div>
       ${g.extrasCount ? `<label class="f">Máximo de extras por dia</label>
         <input type="number" inputmode="numeric" min="0" max="20" data-set="extrasMax" value="${g.extrasMax}">` : ''}
+      <label class="f">Calorias estimadas por extra (kcal), usadas na aba Evolução</label>
+      <div class="row">
+        <div><label class="f" style="margin-top:0">Beliscada</label><input type="number" inputmode="numeric" min="0" data-set="ek_pequena" value="${g.extraKcal.pequena}"></div>
+        <div><label class="f" style="margin-top:0">Lanche</label><input type="number" inputmode="numeric" min="0" data-set="ek_lanche" value="${g.extraKcal.lanche}"></div>
+        <div><label class="f" style="margin-top:0">Completa</label><input type="number" inputmode="numeric" min="0" data-set="ek_grande" value="${g.extraKcal.grande}"></div>
+      </div>
       <p class="note">Desligado: as extras só aparecem no resumo e no histórico. Ligado: passar do máximo derruba a meta do dia, mesmo com todas as refeições feitas.</p>
     </div>
 
@@ -656,7 +770,7 @@ function renderSettings(){
       <h2>Refeições</h2>
       ${mealsHtml}
       <button class="btn block" data-act="madd">Adicionar refeição</button>
-      <button class="btn block" data-act="mreset">Restaurar refeições do plano</button>
+      <button class="btn block" data-act="mreset">Aplicar/restaurar plano de fev/2024</button>
     </div>
 
     <div class="card">
@@ -708,6 +822,119 @@ function chartCard(id, title, pts, unit, d, color, minPad){
     <svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Gráfico de ${title}">${grid}<path class="ln" d="${path}" style="stroke:${color}"/>${dots}${xl}${hits}</svg>
     <div class="readout"><b>${fmtN(sel.y, d)} ${unit}</b> · ${fmtDate(sel.k)}</div>${delta}</div>`;
 }
+/* ---------- Energia: comendo × gastando ---------- */
+const FA_PRESETS = [[1.2,'Sedentário (1,2)'],[1.375,'Pouco ativo (1,375)'],[1.55,'Moderadamente ativo (1,55)'],[1.725,'Muito ativo (1,725)'],[1.9,'Extremamente ativo (1,9)']];
+const fcom = x => String(x).replace('.', ',');
+function ageFrom(birth){
+  const b = parseKey(birth), n = new Date();
+  let a = n.getFullYear() - b.getFullYear();
+  if(n.getMonth() < b.getMonth() || (n.getMonth() === b.getMonth() && n.getDate() < b.getDate())) a--;
+  return a;
+}
+function energyCalc(){
+  const g = state.settings, all = bodySorted(), last = all[all.length - 1];
+  const miss = [];
+  if(!last) miss.push('uma medição de peso');
+  if(!g.height) miss.push('altura');
+  if(!g.sex) miss.push('sexo');
+  if(!g.birth) miss.push('data de nascimento');
+  if(miss.length) return { miss };
+  const W = last.w, H = g.height, A = ageFrom(g.birth), M = g.sex === 'M';
+  const lastBF = all.slice().reverse().find(x => x.bf != null);
+  let use = g.formula === 'auto' ? (lastBF ? 'katch' : 'mifflin') : g.formula;
+  const fallback = use === 'katch' && !lastBF;
+  if(fallback) use = 'mifflin';
+  let tmb, name, lines;
+  if(use === 'katch'){
+    const ffm = W * (1 - lastBF.bf / 100);
+    tmb = 370 + 21.6 * ffm; name = 'Katch-McArdle';
+    lines = [`MLG = peso × (1 − %gordura/100) = ${fcom(W)} × (1 − ${fcom(lastBF.bf)}/100) = ${fmtN(ffm)} kg`,
+             `TMB = 370 + (21,6 × MLG) = 370 + (21,6 × ${fmtN(ffm)}) = ${fmtN(tmb, 0)} kcal`];
+  } else {
+    const c0 = M ? 5 : -161, sg = c0 < 0 ? '−' : '+';
+    tmb = 10 * W + 6.25 * H - 5 * A + c0; name = 'Mifflin-St Jeor';
+    lines = [`TMB = (10 × peso) + (6,25 × altura) − (5 × idade) ${sg} ${Math.abs(c0)}`,
+             `TMB = (10 × ${fcom(W)}) + (6,25 × ${fcom(H)}) − (5 × ${A}) ${sg} ${Math.abs(c0)} = ${fmtN(tmb, 0)} kcal`];
+  }
+  const fa = Number(g.fa) || 1.55, get = tmb * fa;
+  lines.push(`GET = TMB × FA = ${fmtN(tmb, 0)} × ${fcom(fa)} = ${fmtN(get, 0)} kcal`);
+  return { tmb, get, fa, name, lines, fallback, W, A, bfDate: use === 'katch' ? lastBF.date : null };
+}
+function planKcal(dow){
+  const ms = state.meals.filter(m => m.enabled && m.days.includes(dow));
+  return { kcal: ms.reduce((a, m) => a + (Number(m.kcal) || 0), 0), missing: ms.filter(m => m.kcal == null || m.kcal === '').length };
+}
+function dayIntake(key){        // kcal estimadas do dia (refeições marcadas + extras); null se não der para calcular
+  const ents = state.log[key] || {}, ex = state.extras[key] || [], ek = state.settings.extraKcal || {};
+  let k = 0, any = false;
+  for(const m of mealsFor(key)){
+    const e = ents[m.id]; if(!e) continue;
+    any = true;
+    if(e.status === 'done'){ if(m.kcal == null) return null; k += Number(m.kcal) || 0; }
+  }
+  ex.forEach(e => { any = true; k += Number(ek[e.size]) || 0; });
+  return any ? k : null;
+}
+function intakeAvg(n){
+  const d = new Date(), vals = [];
+  for(let i = 0; i < n; i++){
+    d.setDate(d.getDate() - 1); const k = dayKey(d);
+    if(k < state.startDate) break;
+    const v = dayIntake(k); if(v != null) vals.push(v);
+  }
+  return vals.length ? { avg: vals.reduce((a, b) => a + b, 0) / vals.length, n: vals.length } : null;
+}
+function energyCard(){
+  const E = energyCalc();
+  if(E.miss) return `<div class="card"><h2>Energia: comendo × gastando</h2>
+    <div class="sub">Para estimar seu gasto, complete em "Seus dados" (mais abaixo): ${E.miss.join(', ')}.</div></div>`;
+  const P = planKcal(new Date().getDay()), I = intakeAvg(7);
+  const rows = [['Basal (TMB)', E.tmb, 'tmb'], ['Gasto total (GET)', E.get, 'get'], ['Dieta (plano)', P.kcal, 'plan']];
+  if(I) rows.push([`Comido (${I.n} ${I.n === 1 ? 'dia' : 'dias'})`, I.avg, 'real']);
+  const max = Math.max(...rows.map(r => r[1]), 1) * 1.05;
+  const bars = rows.map(([l, v, c]) => `<div class="ebar ${c}"><span class="lb">${l}</span><span class="tr"><i style="width:${(v / max * 100).toFixed(1)}%"></i></span><b>${fmtN(v, 0)}</b></div>`).join('');
+  const saldo = P.kcal - E.get;
+  const sTxt = Math.abs(saldo) < 100 ? 'Perto da manutenção' : saldo > 0 ? 'Superávit' : 'Déficit';
+  const saldoReal = I ? I.avg - E.get : null;
+  return `<div class="card"><h2>Energia: comendo × gastando</h2>
+    ${bars}
+    <div style="margin-top:12px"><span class="chip progress" style="margin-top:0">${sTxt}: ${saldo >= 0 ? '+' : '−'}${fmtN(Math.abs(saldo), 0)} kcal/dia</span></div>
+    <p class="sub" style="margin:8px 0 0">Dieta − GET = ${fmtN(P.kcal, 0)} − ${fmtN(E.get, 0)} = ${saldo >= 0 ? '+' : '−'}${fmtN(Math.abs(saldo), 0)} kcal/dia.
+      ${saldoReal != null ? `Pelos seus checks e extras: ${saldoReal >= 0 ? '+' : '−'}${fmtN(Math.abs(saldoReal), 0)} kcal/dia.` : ''}</p>
+    ${P.missing ? `<p class="note">Faltam calorias em ${pl(P.missing, 'refeição', 'refeições')}: preencha em Ajustes > Refeições.</p>` : ''}
+    ${E.fallback ? `<p class="note">Katch-McArdle precisa do % de gordura; usando Mifflin-St Jeor.</p>` : ''}
+    <details class="nt"><summary>Ver fórmulas (${E.name})</summary>
+      <div class="formula">${E.lines.join('<br>')}</div>
+      ${E.bfDate ? `<p class="note">Usa o último % de gordura medido (${fmtDate(E.bfDate)}) e o peso atual.</p>` : ''}
+    </details>
+    <p class="note">São estimativas: as calorias da dieta são a média das opções de cada refeição (valores aproximados) e o gasto real costuma variar 10 a 15% para mais ou para menos. Use a evolução do peso e do % de gordura para calibrar. "Comido" soma as refeições que você marcou mais as extras (estimadas em Ajustes), nos dias com registro.</p>
+  </div>`;
+}
+function dataCard(){
+  const g = state.settings;
+  const custom = FA_PRESETS.some(([v]) => v === Number(g.fa)) ? '' : `<option value="${g.fa}" selected>Personalizado (${fcom(g.fa)})</option>`;
+  return `<div class="card"><h2>Seus dados</h2>
+    <div class="sub">Preencha uma vez. Peso e % de gordura vêm das suas medições.</div>
+    <div class="row">
+      <div><label class="f">Sexo</label><select data-set="sex">
+        <option value="" ${!g.sex ? 'selected' : ''}>Selecione</option>
+        <option value="M" ${g.sex === 'M' ? 'selected' : ''}>Masculino</option>
+        <option value="F" ${g.sex === 'F' ? 'selected' : ''}>Feminino</option></select></div>
+      <div><label class="f">Nascimento</label><input type="date" data-set="birth" value="${g.birth || ''}"></div>
+    </div>
+    <label class="f">Altura (cm)</label>
+    <input type="number" inputmode="decimal" step="any" data-set="height" value="${g.height ?? ''}" placeholder="ex.: 175">
+    <label class="f">Nível de atividade</label>
+    <select data-set="fa">${FA_PRESETS.map(([v, l]) => `<option value="${v}" ${Number(g.fa) === v ? 'selected' : ''}>${l}</option>`).join('')}${custom}</select>
+    <label class="f">Fórmula do metabolismo basal</label>
+    <select data-set="formula">
+      <option value="auto" ${g.formula === 'auto' ? 'selected' : ''}>Automática (Katch-McArdle se tiver % de gordura)</option>
+      <option value="mifflin" ${g.formula === 'mifflin' ? 'selected' : ''}>Mifflin-St Jeor</option>
+      <option value="katch" ${g.formula === 'katch' ? 'selected' : ''}>Katch-McArdle (usa % de gordura)</option>
+    </select>
+  </div>`;
+}
+
 function renderWeight(){
   const all = bodySorted(), h = state.settings.height;
   const last = all[all.length - 1], prev = all[all.length - 2];
@@ -730,7 +957,7 @@ function renderWeight(){
         <div class="formula">IMC = peso ÷ altura² = ${fmtN(last.w)} ÷ (${fmtN(h / 100, 2)})² = <b>${fmtN(im.i)} kg/m²</b><br>
           <span class="sub">Faixa de peso normal (IMC 18,5 a 24,9) para ${fmtN(h, 0)} cm: ${fmtN(18.5 * (h/100) ** 2)} a ${fmtN(24.9 * (h/100) ** 2)} kg.</span></div>
         <p class="note">O IMC não diferencia músculo de gordura. Acompanhe também o % de gordura e a massa magra.</p>`
-        : `<p class="note">Informe sua altura abaixo para calcular o IMC.</p>`}
+        : `<p class="note">Informe sua altura em "Seus dados" (mais abaixo) para calcular o IMC.</p>`}
     </div>`;
   } else {
     summary = `<div class="card"><div class="sub">Nenhuma medição ainda. Toque em "Nova medição" e informe o peso e, se tiver, o % de gordura da sua última avaliação.</div></div>`;
@@ -748,12 +975,12 @@ function renderWeight(){
       <span class="v"><b>${fmtN(x.w)} kg</b>${x.bf != null ? ` · ${fmtN(x.bf)}% gordura` : ''}</span>${im ? `<span class="sub">IMC ${fmtN(im.i)}</span>` : ''}</button>`;
   }).join('');
 
-  return `<h1>Peso</h1>
-    <div class="sub">Peso, IMC e % de gordura</div>
+  return `<h1>Evolução</h1>
+    <div class="sub">Peso, IMC, % de gordura e energia</div>
     ${summary}
     <button class="btn primary block" data-act="badd">+ Nova medição</button>
-    <div class="card" style="margin-top:14px"><label class="f" style="margin-top:0">Altura (cm)</label>
-      <input type="number" inputmode="decimal" step="any" data-set="height" value="${h ?? ''}" placeholder="ex.: 175"></div>
+    ${energyCard()}
+    ${dataCard()}
     ${all.length ? `<div class="seg">${ranges.map(([k, l]) => `<button class="${ui.range === k ? 'on' : ''}" data-act="range" data-r="${k}">${l}</button>`).join('')}</div>
       ${chartCard('w', 'Peso', mk(rng, x => x.w), 'kg', 1, 'var(--accent)', 0.5)}
       ${withBF.length ? chartCard('f', '% de gordura', mk(withBF, x => x.bf), '%', 1, 'var(--warn)', 0.5) : ''}
@@ -798,7 +1025,7 @@ function renderModal(){
   if(!modalCtx){ $modal.className = ''; $modal.innerHTML = ''; return; }
   if(modalCtx.kind === 'extra') return renderExtraModal();
   if(modalCtx.kind === 'body') return renderBodyModal();
-  const m = state.meals.find(x => x.id === modalCtx.id); if(!m){ modalCtx = null; return renderModal(); }
+  const m = mealsFor(modalCtx.key).find(x => x.id === modalCtx.id); if(!m){ modalCtx = null; return renderModal(); }
   const e = (state.log[modalCtx.key] || {})[m.id];
   const isToday = modalCtx.key === dayKey(new Date());
   const val = e && e.at ? e.at : (isToday ? minToTime(nowMin()) : m.time);
@@ -823,6 +1050,21 @@ function setLog(key, id, entry){
   if(entry) state.log[key][id] = entry; else delete state.log[key][id];
   save();
 }
+
+function applyPlan(){
+  const old = state.meals, byId = Object.fromEntries(old.map(m => [m.id, m]));
+  const legacy = { colacao:'lanche', lanchet:'fruta', ceia:'pos' };      // equivalentes do plano de 2022 (para manter horários)
+  const fresh = DEFAULT_MEALS();
+  fresh.forEach(m => { const o = byId[m.id] || byId[legacy[m.id]]; if(o && o.time) m.time = o.time; });
+  const y = new Date(); y.setDate(y.getDate() - 1);
+  const until = dayKey(y);
+  state.planHistory = state.planHistory || [];
+  const lastH = state.planHistory[state.planHistory.length - 1];
+  if(!lastH || lastH.until !== until) state.planHistory.push({ until, meals:old });
+  state.meals = fresh; state.planV = PLAN_V; state.planDismiss = false;
+  save();
+}
+const PLAN_MSG = 'Aplicar o plano de fev/2024?\n\nSeu histórico antigo é preservado e os horários atuais são mantidos. Lembretes antigos já agendados (como lanche da manhã, fruta e pré/pós-treino) ainda podem chegar por até 3 dias; para descartá-los, use "Gerar novo tópico" em Ajustes.';
 
 document.addEventListener('click', async ev => {
   const el = ev.target.closest('[data-act]'); if(!el) return;
@@ -850,6 +1092,9 @@ document.addEventListener('click', async ev => {
     case 'mclear': setLog(modalCtx.key, modalCtx.id, null); modalCtx = null; renderModal(); render(); break;
     case 'mclose': modalCtx = null; renderModal(); break;
 
+    case 'train':
+      if(state.workouts[key]) delete state.workouts[key]; else state.workouts[key] = { at: key === today ? minToTime(nowMin()) : null };
+      save(); render(); break;
     case 'xadd': modalCtx = { kind:'extra', key, id:null }; renderModal(); break;
     case 'xedit': modalCtx = { kind:'extra', key, id }; renderModal(); break;
     case 'xsize':
@@ -898,8 +1143,12 @@ document.addEventListener('click', async ev => {
       state.meals.push(m); openMeals.add(m.id); save(); render(); break;
     }
     case 'mreset':
-      if(confirm('Voltar às 7 refeições do plano? Suas edições nas refeições serão perdidas.')){ state.meals = DEFAULT_MEALS(); save(); render(); }
+      if(confirm(PLAN_MSG)){ applyPlan(); render(); schedule(); }
       break;
+    case 'applyplan':
+      if(confirm(PLAN_MSG)){ applyPlan(); render(); schedule(); scrollTo(0,0); }
+      break;
+    case 'planlater': state.planDismiss = true; save(); render(); break;
 
     case 'copytopic':
       try{ await navigator.clipboard.writeText(state.settings.topic); notice = { notif:'Tópico copiado.' }; }
@@ -931,12 +1180,13 @@ document.addEventListener('click', async ev => {
         const raw = $('#importBox').value.trim(); const s = JSON.parse(raw);
         if(!s.meals || !s.settings || !s.log) throw new Error('formato inválido');
         state = { ...DEFAULT_STATE(), ...s, settings: { ...DEFAULT_STATE().settings, ...s.settings } };
+        if(s.planV === undefined) state.planV = 1;
         save(); notice = { backup:'Backup restaurado.' };
       }catch(e){ notice = { backup:'Backup inválido: ' + e.message, backupErr:true }; }
       render(); break;
     case 'wipe':
       if(confirm('Apagar todo o histórico de checks? As configurações são mantidas.')){
-        state.log = {}; state.extras = {}; state.startDate = dayKey(new Date()); save(); render();
+        state.log = {}; state.extras = {}; state.workouts = {}; state.startDate = dayKey(new Date()); save(); render();
       }
       break;
   }
@@ -950,11 +1200,15 @@ document.addEventListener('change', ev => {
     if(['goalValue','tolerance','extrasMax'].includes(k)) v = Math.max(0, Number(v) || 0);
     if(k === 'height'){ const n = numv(v); v = n && n > 50 && n < 250 ? n : null; }
     if(k === 'server') v = String(v).trim() || 'https://ntfy.sh';
+    if(k === 'fa') v = Number(v) || 1.55;
+    if(k === 'sex' || k === 'birth') v = v || null;
+    if(k.startsWith('ek_')){ state.settings.extraKcal = { ...state.settings.extraKcal, [k.slice(3)]: Math.max(0, Number(v) || 0) }; save(); render(); return; }
     state.settings[k] = v; save(); render();
     if(['ntfyOn','closeOn','closeTime','server'].includes(k)) schedule();
   } else if(el.dataset.meal){
     const m = state.meals.find(x => x.id === el.dataset.meal); if(!m) return;
-    m[el.dataset.field] = el.type === 'checkbox' ? el.checked : el.value;
+    const fld = el.dataset.field;
+    m[fld] = el.type === 'checkbox' ? el.checked : fld === 'kcal' ? numv(el.value) : el.value;
     if(el.dataset.field === 'name' && /^Hora d/.test(m.notif || '') === false && !m.notif) m.notif = 'Hora de ' + m.name;
     save(); render();
     if(['time','enabled'].includes(el.dataset.field)) schedule();
@@ -998,7 +1252,7 @@ async function schedule(manual){
       const key = dayKey(d), dow = d.getDay();
       const at = hhmm => { const [h,mi] = hhmm.split(':').map(Number); const t = new Date(d); t.setHours(h, mi, 0, 0); return t.getTime(); };
       state.meals.filter(m => m.enabled && m.days.includes(dow)).forEach(m =>
-        events.push({ k:`${key}|${m.id}|${m.time}`, t:at(m.time), title: m.notif || ('Hora de ' + m.name), msg: m.tip || '' }));
+        events.push({ k:`${key}|${m.id}|${m.time}`, t:at(m.time), title: m.notif || ('Hora de ' + m.name), msg: m.short || m.tip || '' }));
       if(s.closeOn) events.push({ k:`${key}|close|${s.closeTime}`, t:at(s.closeTime),
         title:'Hora de fechar o dia', msg:'Abra o app, confira seus checks e veja o resumo do dia.' });
     }
