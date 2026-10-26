@@ -189,6 +189,13 @@ details.nt summary{cursor:pointer;color:var(--accent);font-weight:600;font-size:
 .train.on{background:var(--accent-soft);border-color:var(--accent)}
 .train.on .tdot{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
 .tb{font-size:11px;font-weight:700;color:var(--accent);background:var(--accent-soft);padding:2px 7px;border-radius:99px;flex:none}
+
+/* v5: treino/corrida */
+[hidden]{display:none!important}
+.sess{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;text-align:left;background:var(--accent-soft);border:0;border-radius:var(--radius);padding:12px 14px;margin:8px 0}
+.sess .ti{font-weight:650;font-size:15px}.sess .sb2{font-size:13px;color:var(--accent)}
+.sess .kc{font-weight:700;color:var(--accent);white-space:nowrap;font-variant-numeric:tabular-nums}
+.opts.acc button.on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
 </style>
 </head>
 <body>
@@ -299,6 +306,9 @@ const DEFAULT_STATE = () => ({
     fa: 1.55,                 // fator de atividade
     formula: 'auto',          // auto | mifflin | katch
     extraKcal: { pequena:150, lanche:300, grande:700 },   // estimativa de kcal por extra
+    faBase: 1.3,              // atividade no dia a dia, SEM contar treino
+    gym: { min:45, met:4.0 }, // treino padrão: minutos e intensidade (MET)
+    run: { km:3, pace:'4:50' },// corrida padrão
   },
   meals: DEFAULT_MEALS(),
   planV: PLAN_V,
@@ -311,6 +321,14 @@ const DEFAULT_STATE = () => ({
 });
 
 const STORE = 'dieta-app-v1';
+function migrateWorkouts(w){        // formato antigo {at} vira lista de sessões
+  const o = {};
+  for(const k in (w || {})){
+    const v = w[k];
+    o[k] = Array.isArray(v) ? v : [{ id:uid(), type:'gym', ab:null, min:45, at:(v && v.at) || null }];
+  }
+  return o;
+}
 function load(){
   try{
     const raw = localStorage.getItem(STORE);
@@ -318,6 +336,7 @@ function load(){
       const s = JSON.parse(raw), d = DEFAULT_STATE();
       const out = { ...d, ...s, settings: { ...d.settings, ...(s.settings||{}) } };
       if(s.planV === undefined) out.planV = 1;   // dados antigos: plano de 2022
+      out.workouts = migrateWorkouts(out.workouts);
       return out;
     }
   }catch(e){}
@@ -448,6 +467,11 @@ function summaryLines(s){
   if(s.upcoming + s.due) L.push(`Ainda ${s.upcoming + s.due === 1 ? 'falta' : 'faltam'} ${s.upcoming + s.due} no dia.`);
   if(s.extraN) L.push(`${pl(s.extraN, 'refeição extra', 'refeições extras')} fora da dieta (${s.extras.map(e => e.at).join(', ')}).`);
   if(s.extraN && state.settings.extrasCount) L.push(`Limite de extras por dia: ${state.settings.extrasMax}.`);
+  const ss = sess(s.key);
+  if(ss.length){
+    const kc = trainKcal(s.key);
+    L.push(`Treino: ${ss.map(x => x.type === 'run' ? `corrida ${fmtN(x.km, 1)} km` : `treino${x.ab ? ' ' + x.ab : ''} (${x.min} min)`).join(' + ')}${kc ? ` (≈ ${fmtN(kc, 0)} kcal)` : ''}.`);
+  }
   return L;
 }
 
@@ -537,12 +561,25 @@ function summaryCard(s, title){
   </div>`;
 }
 
+function sessLine(s){
+  if(s.type === 'run'){
+    const ps = paceSecs(s.pace), t = ps ? Math.round(ps * s.km) : null;
+    return `Corrida · ${fmtN(s.km, 1)} km${s.pace ? ' · pace ' + s.pace : ''}${t ? ' · ' + Math.floor(t / 60) + ':' + pad(t % 60) + ' min' : ''}`;
+  }
+  return `Treino${s.ab ? ' ' + s.ab : ''} · ${s.min} min`;
+}
 function trainBlock(key){
-  const on = !!state.workouts[key], isToday = key === dayKey(new Date());
-  return `<button class="train ${on ? 'on' : ''}" data-act="train" data-day="${key}">
-    <span class="tdot">${on ? ICONS.check : ''}</span>
-    <span><b>${on ? 'Treino feito' : (isToday ? 'Treinei hoje' : 'Treinou neste dia')}</b>
-    <span class="sub">${on ? 'Toque para desmarcar' : (isToday ? 'Toque quando terminar o treino' : 'Toque para marcar')}</span></span></button>`;
+  const cards = sess(key).map(s => { const kc = sessionKcal(s, key);
+    return `<button class="sess" data-act="sedit" data-day="${key}" data-id="${s.id}">
+      <div><div class="ti">${sessLine(s)}</div><div class="sb2">${s.at ? 'registrado às ' + s.at : 'registrado depois'}</div></div>
+      <span class="kc">${kc != null ? '≈ ' + fmtN(kc, 0) + ' kcal' : '–'}</span></button>`; }).join('');
+  return `<div class="sec"><h2>Treino e corrida</h2></div>
+    ${cards || '<div class="sub" style="margin:6px 0">Nenhum treino registrado.</div>'}
+    <button class="btn block" data-act="sadd" data-day="${key}">+ Registrar treino ou corrida</button>`;
+}
+function trainBadges(k){
+  const t = new Set(sess(k).map(x => x.type));
+  return (t.has('gym') ? '<span class="tb">Treino</span>' : '') + (t.has('run') ? '<span class="tb">Corrida</span>' : '');
 }
 
 function planBanner(){
@@ -584,9 +621,9 @@ function renderToday(){
       </div>
       ${next ? `<div class="next">${next}</div>` : ''}
     </div>
-    ${trainBlock(s.key)}
     ${mealList(s)}
     ${extrasBlock(s)}
+    ${trainBlock(s.key)}
     ${summaryCard(s, 'Resumo do dia')}
   `;
 }
@@ -605,15 +642,18 @@ function trackedDays(n){
 
 function trainCard(){
   const keys = trackedDays(30), today = dayKey(new Date());
-  const t7 = keys.slice(0, 7).filter(k => state.workouts[k]).length;
-  const t30 = keys.filter(k => state.workouts[k]).length;
+  const cnt = (ks, t) => ks.reduce((a, k) => a + sess(k).filter(x => x.type === t).length, 0);
+  const k7 = keys.slice(0, 7);
+  const kcDia = keys.length ? keys.reduce((a, k) => a + trainKcal(k), 0) / keys.length : 0;
   const withT = [], without = [];
-  keys.forEach(k => { if(k === today) return; const s = dayStats(k); if(!s.planned) return; (state.workouts[k] ? withT : without).push(s.pct); });
+  keys.forEach(k => { if(k === today) return; const st = dayStats(k); if(!st.planned) return; (sess(k).length ? withT : without).push(st.pct); });
   const avg = a => Math.round(a.reduce((x, y) => x + y, 0) / a.length);
   const cmp = (withT.length && without.length)
     ? `<p class="sub" style="margin:10px 0 0">Dieta em dias de treino: <b>${avg(withT)}%</b> (${pl(withT.length, 'dia', 'dias')}) · em dias sem treino: <b>${avg(without)}%</b> (${pl(without.length, 'dia', 'dias')}).</p>` : '';
-  return `<div class="card"><h2>Treino</h2>
-    <div class="stats auto"><div class="stat"><b>${t7}</b><span>treinos (7 dias)</span></div><div class="stat"><b>${t30}</b><span>treinos (30 dias)</span></div></div>${cmp}</div>`;
+  return `<div class="card"><h2>Treino e corrida</h2>
+    <div class="stats auto"><div class="stat"><b>${cnt(k7, 'gym')}</b><span>treinos (7 dias)</span></div>
+      <div class="stat"><b>${cnt(k7, 'run')}</b><span>corridas (7 dias)</span></div>
+      <div class="stat"><b>${fmtN(kcDia, 0)}</b><span>kcal/dia de treino (30 dias)</span></div></div>${cmp}</div>`;
 }
 
 function renderHistory(){
@@ -626,9 +666,9 @@ function renderHistory(){
       <div class="card"><div class="plate">${plateSVG(s)}
         <div><div class="big">${s.pct}<small>%</small></div>
         <div class="sub">${s.done} de ${s.planned} refeições</div>${goalChip(s.goal.st, s.isToday)}${extraChip(s)}</div></div></div>
-      ${trainBlock(s.key)}
       ${mealList(s)}
       ${extrasBlock(s)}
+      ${trainBlock(s.key)}
       ${summaryCard(s, 'Resumo')}`;
   }
   const keys = trackedDays(14);
@@ -652,7 +692,7 @@ function renderHistory(){
       <span class="d">${x.isToday ? 'Hoje' : dayLabel(d)}</span>
       <span class="bar"><i style="width:${x.pct}%"></i></span>
       <span class="p">${x.planned ? x.pct + '%' : '–'}</span>
-      ${state.workouts[x.key] ? '<span class="tb">Treino</span>' : ''}
+      ${trainBadges(x.key)}
       ${x.extraN ? `<span class="xb">+${x.extraN}</span>` : ''}
       <span class="dot ${x.goal.st}" title="${x.goal.st}"></span>
     </button>`;
@@ -722,6 +762,19 @@ function renderSettings(){
       <label class="f">Tolerância de horário (minutos)</label>
       <input type="number" inputmode="numeric" min="0" max="240" data-set="tolerance" value="${g.tolerance}">
       <p class="note">Uma refeição conta como no horário se você marcar até o horário do lembrete + a tolerância. Depois disso, o atraso é contado a partir do fim da tolerância.</p>
+    </div>
+
+    <div class="card">
+      <h2>Treino e corrida</h2>
+      <div class="row">
+        <div><label class="f" style="margin-top:0">Treino: minutos</label><input type="number" inputmode="numeric" min="5" data-set="gym_min" value="${g.gym.min}"></div>
+        <div><label class="f" style="margin-top:0">Intensidade</label><select data-set="gym_met">${GYM_LEVELS.map(([v, l]) => `<option value="${v}" ${Number(g.gym.met) === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+      </div>
+      <div class="row">
+        <div><label class="f">Corrida: km</label><input type="number" inputmode="decimal" step="any" min="0" data-set="run_km" value="${g.run.km}"></div>
+        <div><label class="f">Pace (min:seg por km)</label><input data-set="run_pace" value="${g.run.pace}" placeholder="4:50"></div>
+      </div>
+      <p class="note">Valores sugeridos ao registrar (você pode mudar em cada registro). Calorias do treino = gasto acima do repouso: musculação (MET − 1) × peso × horas; corrida 1,0 kcal × peso × km.</p>
     </div>
 
     <div class="card">
@@ -823,7 +876,8 @@ function chartCard(id, title, pts, unit, d, color, minPad){
     <div class="readout"><b>${fmtN(sel.y, d)} ${unit}</b> · ${fmtDate(sel.k)}</div>${delta}</div>`;
 }
 /* ---------- Energia: comendo × gastando ---------- */
-const FA_PRESETS = [[1.2,'Sedentário (1,2)'],[1.375,'Pouco ativo (1,375)'],[1.55,'Moderadamente ativo (1,55)'],[1.725,'Muito ativo (1,725)'],[1.9,'Extremamente ativo (1,9)']];
+const FA_PRESETS = [[1.2,'Sedentário (1,2)'],[1.3,'Pouco ativo (1,3)'],[1.4,'Ativo no dia a dia (1,4)'],[1.5,'Muito ativo, trabalho físico (1,5)']];
+const GYM_LEVELS = [[3.0,'Leve (3,0 MET)'],[4.0,'Moderado (4,0 MET)'],[5.5,'Intenso (5,5 MET)']];
 const fcom = x => String(x).replace('.', ',');
 function ageFrom(birth){
   const b = parseKey(birth), n = new Date();
@@ -856,8 +910,9 @@ function energyCalc(){
     lines = [`TMB = (10 × peso) + (6,25 × altura) − (5 × idade) ${sg} ${Math.abs(c0)}`,
              `TMB = (10 × ${fcom(W)}) + (6,25 × ${fcom(H)}) − (5 × ${A}) ${sg} ${Math.abs(c0)} = ${fmtN(tmb, 0)} kcal`];
   }
-  const fa = Number(g.fa) || 1.55, get = tmb * fa;
-  lines.push(`GET = TMB × FA = ${fmtN(tmb, 0)} × ${fcom(fa)} = ${fmtN(get, 0)} kcal`);
+  const fa = Number(g.faBase) || 1.3, get = tmb * fa;       // get = gasto do dia SEM treino
+  lines.push(`Gasto sem treino = TMB × FA = ${fmtN(tmb, 0)} × ${fcom(fa)} = ${fmtN(get, 0)} kcal`);
+  lines.push('Gasto do dia = gasto sem treino + calorias dos treinos e corridas do dia');
   return { tmb, get, fa, name, lines, fallback, W, A, bfDate: use === 'katch' ? lastBF.date : null };
 }
 function planKcal(dow){
@@ -875,44 +930,133 @@ function dayIntake(key){        // kcal estimadas do dia (refeições marcadas +
   ex.forEach(e => { any = true; k += Number(ek[e.size]) || 0; });
   return any ? k : null;
 }
-function intakeAvg(n){
-  const d = new Date(), vals = [];
+
+/* ---------- treino e corrida: calorias ---------- */
+const sess = k => state.workouts[k] || [];
+const paceSecs = p => { const m = /^(\d{1,2}):(\d{2})$/.exec(p || ''); return m ? (+m[1]) * 60 + (+m[2]) : null; };
+function weightAt(key){         // peso medido mais recente até a data (ou o primeiro registrado)
+  const all = bodySorted(); if(!all.length) return null;
+  let w = all[0].w;
+  for(const x of all){ if(x.date <= key) w = x.w; else break; }
+  return w;
+}
+function sessionKcal(s, key){   // gasto ACIMA do repouso (o repouso já está na TMB × FA)
+  const W = weightAt(key); if(W == null) return null;
+  if(s.type === 'run') return 1.0 * W * (Number(s.km) || 0);                          // ACSM: ~1,0 kcal/kg/km, terreno plano
+  const met = Number((state.settings.gym || {}).met) || 4;
+  return (met - 1) * W * ((Number(s.min) || 0) / 60);                                  // (MET − 1) × kg × horas
+}
+const trainKcal = k => sess(k).reduce((a, x) => a + (sessionKcal(x, k) || 0), 0);
+function avgTrain(n){
+  const d = new Date(); let sum = 0, c = 0;
+  for(let i = 0; i < n; i++){ const k = dayKey(d); if(k >= state.startDate){ sum += trainKcal(k); c++; } d.setDate(d.getDate() - 1); }
+  return c ? sum / c : 0;
+}
+function balanceWindow(n, E){   // média dos últimos n dias com registro (hoje fica de fora: ainda incompleto)
+  const d = new Date(), days = [];
   for(let i = 0; i < n; i++){
     d.setDate(d.getDate() - 1); const k = dayKey(d);
     if(k < state.startDate) break;
-    const v = dayIntake(k); if(v != null) vals.push(v);
+    const intake = dayIntake(k); if(intake == null) continue;
+    const train = trainKcal(k);
+    days.push({ intake, train, exp: E.get + train });
   }
-  return vals.length ? { avg: vals.reduce((a, b) => a + b, 0) / vals.length, n: vals.length } : null;
+  if(!days.length) return null;
+  const avg = f => days.reduce((a, x) => a + f(x), 0) / days.length;
+  return { n: days.length, intake: avg(x => x.intake), train: avg(x => x.train), exp: avg(x => x.exp), saldo: avg(x => x.intake - x.exp) };
+}
+/* ---------- calibração: gasto aparente a partir de comido + tendência do peso ---------- */
+const utcDays = k => { const [y, m, d] = k.split('-').map(Number); return Date.UTC(y, m - 1, d) / 86400000; };
+function weightSlope(pts){      // kg por dia (regressão linear simples)
+  const t = pts.map(p => utcDays(p.date)), n = pts.length;
+  const mt = t.reduce((a, b) => a + b, 0) / n, mw = pts.reduce((a, p) => a + p.w, 0) / n;
+  let num = 0, den = 0;
+  pts.forEach((p, i) => { num += (t[i] - mt) * (p.w - mw); den += (t[i] - mt) ** 2; });
+  return den ? num / den : null;
+}
+function calibCard(){
+  const E = energyCalc(); if(E.miss) return '';
+  const N = 28, d0 = new Date(); d0.setDate(d0.getDate() - N);
+  const pts = bodySorted().filter(x => x.date >= dayKey(d0));
+  const B = balanceWindow(N, E), nDays = B ? B.n : 0;
+  const span = pts.length > 1 ? utcDays(pts[pts.length - 1].date) - utcDays(pts[0].date) : 0;
+  const okW = pts.length >= 2 && span >= 10, okD = nDays >= 7;
+  const mark = ok => ok ? '✓' : '○';
+  if(!okW || !okD){
+    return `<div class="card"><h2>Calibração do gasto</h2>
+      <p class="sub" style="margin-top:0">O app compara o que você comeu com a variação do seu peso para descobrir quanto você realmente gasta. Ainda faltam dados (últimos 28 dias):</p>
+      <p style="margin:6px 0">${mark(okD)} Dias com refeições registradas: <b>${nDays}</b> (mínimo 7)</p>
+      <p style="margin:6px 0">${mark(okW)} Pesagens no período: <b>${pts.length}</b> (mínimo 2, com 10 dias ou mais entre a primeira e a última; o ideal é 1 por semana)</p>
+      <p class="note">Registre o peso em "Nova medição" (o % de gordura é opcional). Pese-se sempre no mesmo horário, de preferência em jejum.</p></div>`;
+  }
+  const slope = weightSlope(pts), first = pts[0], last = pts[pts.length - 1];
+  const real = B.intake - slope * 7700;
+  const diff = real - B.exp, pct = diff / B.exp * 100;
+  const faSug = (real - B.train) / E.tmb;
+  const conf = (pts.length >= 5 && nDays >= 14) ? ['Boa', '±150'] : (pts.length >= 3 && nDays >= 10) ? ['Média', '±250'] : ['Baixa', '±400 ou mais'];
+  const sgn = x => x >= 0 ? '+' : '−';
+  let verdict;
+  if(Math.abs(pct) < 7) verdict = 'A fórmula está batendo com a evolução do seu peso.';
+  else verdict = `A fórmula parece ${diff > 0 ? 'subestimar' : 'superestimar'} o seu gasto em cerca de ${fmtN(Math.abs(diff), 0)} kcal/dia (${fmtN(Math.abs(pct), 0)}%).`;
+  const faOk = faSug >= 1.1 && faSug <= 2.0;
+  const faLine = faOk
+    ? `<p style="margin:10px 0 0">Fator de atividade que explicaria o período: <b>${fcom(faSug.toFixed(2))}</b> (hoje: ${fcom(E.fa)}).</p>
+       ${Math.abs(faSug - E.fa) >= 0.03 ? `<button class="btn block" data-act="usefa" data-v="${faSug.toFixed(2)}">Usar fator ${fcom(faSug.toFixed(2))}</button>` : ''}`
+    : `<p class="note">O fator calculado (${fcom(faSug.toFixed(2))}) está fora do esperado (1,1 a 2,0): provavelmente faltam refeições ou extras registrados, ou o peso oscilou muito. Não aplique.</p>`;
+  return `<div class="card"><h2>Calibração do gasto</h2>
+    <div class="sub">Últimos 28 dias: ${nDays} ${nDays === 1 ? 'dia' : 'dias'} com refeições registradas e ${pts.length} pesagens.</div>
+    <div class="formula">Tendência do peso: ${sgn(slope)}${fmtN(Math.abs(slope * 7), 2)} kg/semana (${fmtN(first.w)} kg em ${fmtDate(first.date)} → ${fmtN(last.w)} kg em ${fmtDate(last.date)})<br>
+      Gasto aparente = comido − (variação do peso × 7.700 kcal/kg)<br>
+      = ${fmtN(B.intake, 0)} − (${fmtN(slope, 3).replace('-', '−')} kg/dia × 7.700) = <b>${fmtN(real, 0)} kcal/dia</b><br>
+      Pela fórmula (média do período): ${fmtN(B.exp, 0)} kcal/dia</div>
+    <div style="margin-top:12px"><span class="chip progress" style="margin-top:0">${sgn(diff)}${fmtN(Math.abs(diff), 0)} kcal/dia em relação à fórmula</span></div>
+    <p style="margin:8px 0 0"><b>${verdict}</b></p>
+    ${faLine}
+    <p class="sub" style="margin:10px 0 0">Confiança: <b>${conf[0]}</b> (incerteza aproximada de ${conf[1]} kcal/dia).</p>
+    <p class="note">O gasto aparente junta tudo: o gasto real, os erros nas calorias estimadas das refeições e o que você comeu sem registrar. Se esquece de marcar refeições ou extras, ele fica menor que o real. Oscilações de 1 kg por água, sal e carboidrato são normais entre pesagens, por isso mais pesagens no mesmo horário deixam o resultado mais confiável. O % de gordura não entra aqui, porque medições de métodos diferentes não são comparáveis.</p>
+  </div>`;
 }
 function energyCard(){
   const E = energyCalc();
   if(E.miss) return `<div class="card"><h2>Energia: comendo × gastando</h2>
     <div class="sub">Para estimar seu gasto, complete em "Seus dados" (mais abaixo): ${E.miss.join(', ')}.</div></div>`;
-  const P = planKcal(new Date().getDay()), I = intakeAvg(7);
-  const rows = [['Basal (TMB)', E.tmb, 'tmb'], ['Gasto total (GET)', E.get, 'get'], ['Dieta (plano)', P.kcal, 'plan']];
-  if(I) rows.push([`Comido (${I.n} ${I.n === 1 ? 'dia' : 'dias'})`, I.avg, 'real']);
+  const nWin = Number(ui.eRange) || 7;
+  const P = planKcal(new Date().getDay()), B = balanceWindow(nWin, E), tr14 = avgTrain(14);
+  const dias = n => n === 1 ? 'dia' : 'dias';
+  const rows = [['Basal (TMB)', E.tmb, 'tmb']];
+  rows.push(B ? [`Gasto médio (${B.n} ${dias(B.n)})`, B.exp, 'get'] : ['Gasto (sem treino)', E.get, 'get']);
+  rows.push(['Dieta (plano)', P.kcal, 'plan']);
+  if(B) rows.push([`Comido (${B.n} ${dias(B.n)})`, B.intake, 'real']);
   const max = Math.max(...rows.map(r => r[1]), 1) * 1.05;
   const bars = rows.map(([l, v, c]) => `<div class="ebar ${c}"><span class="lb">${l}</span><span class="tr"><i style="width:${(v / max * 100).toFixed(1)}%"></i></span><b>${fmtN(v, 0)}</b></div>`).join('');
-  const saldo = P.kcal - E.get;
-  const sTxt = Math.abs(saldo) < 100 ? 'Perto da manutenção' : saldo > 0 ? 'Superávit' : 'Déficit';
-  const saldoReal = I ? I.avg - E.get : null;
+  const sgn = x => x >= 0 ? '+' : '−';
+  let head;
+  if(B){
+    const sTxt = Math.abs(B.saldo) < 100 ? 'Perto da manutenção' : B.saldo > 0 ? 'Superávit médio' : 'Déficit médio';
+    head = `<div style="margin-top:12px"><span class="chip progress" style="margin-top:0">${sTxt}: ${sgn(B.saldo)}${fmtN(Math.abs(B.saldo), 0)} kcal/dia</span></div>
+      <p class="sub" style="margin:8px 0 0">Média dos últimos ${B.n} ${dias(B.n)} com registro: comido ${fmtN(B.intake, 0)} − gasto ${fmtN(B.exp, 0)} (sem treino ${fmtN(E.get, 0)} + treino ${fmtN(B.train, 0)}) = ${sgn(B.saldo)}${fmtN(Math.abs(B.saldo), 0)} kcal/dia.
+      Em teoria, cerca de ${sgn(B.saldo)}${fmtN(Math.abs(B.saldo) * 7 / 7700, 2)} kg por semana.</p>`;
+  } else {
+    const sp = P.kcal - (E.get + tr14);
+    head = `<p class="sub" style="margin:12px 0 0"><b>Ainda não há dias com registro para calcular o saldo real.</b> Marque suas refeições por alguns dias (o app não conta o dia de hoje, que ainda está incompleto).
+      Pelo plano, sem contar extras: dieta − gasto médio = ${fmtN(P.kcal, 0)} − ${fmtN(E.get + tr14, 0)} = ${sgn(sp)}${fmtN(Math.abs(sp), 0)} kcal/dia.</p>`;
+  }
   return `<div class="card"><h2>Energia: comendo × gastando</h2>
+    <div class="seg">${[['7','7 dias'],['14','14 dias'],['30','30 dias']].map(([k, l]) => `<button class="${String(nWin) === k ? 'on' : ''}" data-act="erange" data-r="${k}">${l}</button>`).join('')}</div>
     ${bars}
-    <div style="margin-top:12px"><span class="chip progress" style="margin-top:0">${sTxt}: ${saldo >= 0 ? '+' : '−'}${fmtN(Math.abs(saldo), 0)} kcal/dia</span></div>
-    <p class="sub" style="margin:8px 0 0">Dieta − GET = ${fmtN(P.kcal, 0)} − ${fmtN(E.get, 0)} = ${saldo >= 0 ? '+' : '−'}${fmtN(Math.abs(saldo), 0)} kcal/dia.
-      ${saldoReal != null ? `Pelos seus checks e extras: ${saldoReal >= 0 ? '+' : '−'}${fmtN(Math.abs(saldoReal), 0)} kcal/dia.` : ''}</p>
+    ${head}
     ${P.missing ? `<p class="note">Faltam calorias em ${pl(P.missing, 'refeição', 'refeições')}: preencha em Ajustes > Refeições.</p>` : ''}
     ${E.fallback ? `<p class="note">Katch-McArdle precisa do % de gordura; usando Mifflin-St Jeor.</p>` : ''}
     <details class="nt"><summary>Ver fórmulas (${E.name})</summary>
-      <div class="formula">${E.lines.join('<br>')}</div>
+      <div class="formula">${E.lines.join('<br>')}<br>Treino: (MET − 1) × peso × horas · Corrida: 1,0 × peso × km</div>
       ${E.bfDate ? `<p class="note">Usa o último % de gordura medido (${fmtDate(E.bfDate)}) e o peso atual.</p>` : ''}
     </details>
-    <p class="note">São estimativas: as calorias da dieta são a média das opções de cada refeição (valores aproximados) e o gasto real costuma variar 10 a 15% para mais ou para menos. Use a evolução do peso e do % de gordura para calibrar. "Comido" soma as refeições que você marcou mais as extras (estimadas em Ajustes), nos dias com registro.</p>
+    <p class="note">São estimativas: as calorias da dieta são a média das opções de cada refeição, e o gasto real costuma variar 10 a 15%. As calorias de treino contam só o gasto acima do repouso (o repouso já está na TMB × FA); não some o valor do relógio por cima. Use a evolução do peso e do % de gordura para calibrar. "Comido" soma as refeições marcadas mais as extras (estimadas em Ajustes), só nos dias com registro.</p>
   </div>`;
 }
 function dataCard(){
   const g = state.settings;
-  const custom = FA_PRESETS.some(([v]) => v === Number(g.fa)) ? '' : `<option value="${g.fa}" selected>Personalizado (${fcom(g.fa)})</option>`;
+  const custom = FA_PRESETS.some(([v]) => v === Number(g.faBase)) ? '' : `<option value="${g.faBase}" selected>Personalizado (${fcom(g.faBase)})</option>`;
   return `<div class="card"><h2>Seus dados</h2>
     <div class="sub">Preencha uma vez. Peso e % de gordura vêm das suas medições.</div>
     <div class="row">
@@ -924,8 +1068,8 @@ function dataCard(){
     </div>
     <label class="f">Altura (cm)</label>
     <input type="number" inputmode="decimal" step="any" data-set="height" value="${g.height ?? ''}" placeholder="ex.: 175">
-    <label class="f">Nível de atividade</label>
-    <select data-set="fa">${FA_PRESETS.map(([v, l]) => `<option value="${v}" ${Number(g.fa) === v ? 'selected' : ''}>${l}</option>`).join('')}${custom}</select>
+    <label class="f">Atividade no dia a dia (sem contar treino)</label>
+    <select data-set="faBase">${FA_PRESETS.map(([v, l]) => `<option value="${v}" ${Number(g.faBase) === v ? 'selected' : ''}>${l}</option>`).join('')}${custom}</select>
     <label class="f">Fórmula do metabolismo basal</label>
     <select data-set="formula">
       <option value="auto" ${g.formula === 'auto' ? 'selected' : ''}>Automática (Katch-McArdle se tiver % de gordura)</option>
@@ -980,6 +1124,7 @@ function renderWeight(){
     ${summary}
     <button class="btn primary block" data-act="badd">+ Nova medição</button>
     ${energyCard()}
+    ${calibCard()}
     ${dataCard()}
     ${all.length ? `<div class="seg">${ranges.map(([k, l]) => `<button class="${ui.range === k ? 'on' : ''}" data-act="range" data-r="${k}">${l}</button>`).join('')}</div>
       ${chartCard('w', 'Peso', mk(rng, x => x.w), 'kg', 1, 'var(--accent)', 0.5)}
@@ -1020,10 +1165,64 @@ function renderExtraModal(){
     <button class="btn block" data-act="mclose">Cancelar</button></div>`;
 }
 
+function nextAB(key){           // sugere o treino contrário ao último A/B registrado
+  const ks = Object.keys(state.workouts).filter(k => k < key).sort().reverse();
+  for(const k of ks){
+    const g = sess(k).filter(x => x.type === 'gym' && x.ab).pop();
+    if(g) return g.ab === 'A' ? 'B' : 'A';
+  }
+  return 'A';
+}
+function sessPreview(){
+  const el = $('#sPrev'); if(!el || !modalCtx || modalCtx.kind !== 'sess') return;
+  const W = weightAt(modalCtx.key);
+  if(W == null){ el.innerHTML = 'Registre seu peso na aba Evolução para calcular as calorias.'; return; }
+  if(modalCtx.stype === 'run'){
+    const km = numv($('#sKm').value) || 0, ps = paceSecs($('#sPace').value.trim());
+    const t = ps ? Math.round(ps * km) : null;
+    el.innerHTML = `<b>≈ ${fmtN(1.0 * W * km, 0)} kcal</b>${t ? ` · ${Math.floor(t / 60)}:${pad(t % 60)} min de corrida` : ''}<br><span class="sub">1,0 × peso × km = 1,0 × ${fmtN(W)} × ${fcom(km)}</span>`;
+  } else {
+    const min = numv($('#sMin').value) || 0, met = Number((state.settings.gym || {}).met) || 4;
+    el.innerHTML = `<b>≈ ${fmtN((met - 1) * W * min / 60, 0)} kcal</b><br><span class="sub">(MET − 1) × peso × horas = (${fcom(met)} − 1) × ${fmtN(W)} × ${fmtN(min / 60, 2)}</span>`;
+  }
+}
+function renderSessModal(){
+  const e = modalCtx.id ? sess(modalCtx.key).find(x => x.id === modalCtx.id) : null;
+  const g = state.settings, gym = g.gym || { min:45 }, run = g.run || { km:3, pace:'4:50' };
+  if(modalCtx.stype === undefined) modalCtx.stype = e ? e.type : 'gym';
+  if(modalCtx.ab === undefined) modalCtx.ab = e ? (e.ab || null) : nextAB(modalCtx.key);
+  const t = modalCtx.stype;
+  $modal.className = 'show';
+  $modal.innerHTML = `<div class="sheet">
+    <h2>Treino ou corrida</h2>
+    <div class="sub">${dayLabel(parseKey(modalCtx.key))}</div>
+    <div class="opts acc" id="stypes">
+      <button class="${t === 'gym' ? 'on' : ''}" data-act="stype" data-t="gym">Treino (academia)</button>
+      <button class="${t === 'run' ? 'on' : ''}" data-act="stype" data-t="run">Corrida</button></div>
+    <div id="gymF" ${t === 'gym' ? '' : 'hidden'}>
+      <label class="f">Treino</label>
+      <div class="opts acc" id="sabs">${['A', 'B'].map(v => `<button class="${modalCtx.ab === v ? 'on' : ''}" data-act="sab" data-v="${v}">Treino ${v}</button>`).join('')}</div>
+      <label class="f">Duração (min)</label>
+      <input id="sMin" type="number" inputmode="numeric" min="1" value="${e && e.type === 'gym' ? e.min : gym.min}">
+    </div>
+    <div id="runF" ${t === 'run' ? '' : 'hidden'}>
+      <div class="row">
+        <div><label class="f">Distância (km)</label><input id="sKm" type="number" inputmode="decimal" step="any" min="0" value="${e && e.type === 'run' ? e.km : run.km}"></div>
+        <div><label class="f">Pace (min:seg/km)</label><input id="sPace" placeholder="4:50" value="${e && e.type === 'run' ? (e.pace || '') : run.pace}"></div>
+      </div>
+    </div>
+    <div class="formula" id="sPrev" style="margin-top:12px"></div>
+    <button class="btn primary block" data-act="ssave">Salvar</button>
+    ${e ? '<button class="btn block danger" data-act="sdel">Excluir</button>' : ''}
+    <button class="btn block" data-act="mclose">Cancelar</button></div>`;
+  sessPreview();
+}
+
 /* Modal para registrar horário / pular / limpar */
 function renderModal(){
   if(!modalCtx){ $modal.className = ''; $modal.innerHTML = ''; return; }
   if(modalCtx.kind === 'extra') return renderExtraModal();
+  if(modalCtx.kind === 'sess') return renderSessModal();
   if(modalCtx.kind === 'body') return renderBodyModal();
   const m = mealsFor(modalCtx.key).find(x => x.id === modalCtx.id); if(!m){ modalCtx = null; return renderModal(); }
   const e = (state.log[modalCtx.key] || {})[m.id];
@@ -1092,9 +1291,38 @@ document.addEventListener('click', async ev => {
     case 'mclear': setLog(modalCtx.key, modalCtx.id, null); modalCtx = null; renderModal(); render(); break;
     case 'mclose': modalCtx = null; renderModal(); break;
 
-    case 'train':
-      if(state.workouts[key]) delete state.workouts[key]; else state.workouts[key] = { at: key === today ? minToTime(nowMin()) : null };
-      save(); render(); break;
+    case 'sadd': modalCtx = { kind:'sess', key, id:null }; renderModal(); break;
+    case 'sedit': modalCtx = { kind:'sess', key, id }; renderModal(); break;
+    case 'stype':
+      modalCtx.stype = el.dataset.t;
+      document.querySelectorAll('#stypes button').forEach(b => b.classList.toggle('on', b === el));
+      $('#gymF').hidden = modalCtx.stype !== 'gym'; $('#runF').hidden = modalCtx.stype !== 'run';
+      sessPreview(); break;
+    case 'sab':
+      modalCtx.ab = modalCtx.ab === el.dataset.v ? null : el.dataset.v;
+      document.querySelectorAll('#sabs button').forEach(b => b.classList.toggle('on', b.dataset.v === modalCtx.ab)); break;
+    case 'ssave': {
+      const list = state.workouts[modalCtx.key] = state.workouts[modalCtx.key] || [];
+      const old = modalCtx.id ? list.find(x => x.id === modalCtx.id) : null;
+      const type = modalCtx.stype || 'gym';
+      const ns = { id: old ? old.id : uid(), type, at: old ? old.at : (modalCtx.key === today ? minToTime(nowMin()) : null) };
+      if(type === 'gym'){
+        ns.ab = modalCtx.ab || null; ns.min = numv($('#sMin').value);
+        if(!(ns.min > 0)){ alert('Informe a duração em minutos.'); break; }
+      } else {
+        ns.km = numv($('#sKm').value);
+        if(!(ns.km > 0)){ alert('Informe a distância em km.'); break; }
+        const pc = $('#sPace').value.trim(); ns.pace = paceSecs(pc) ? pc : null;
+      }
+      if(old) list[list.indexOf(old)] = ns; else list.push(ns);
+      save(); modalCtx = null; renderModal(); render(); break;
+    }
+    case 'sdel':
+      state.workouts[modalCtx.key] = sess(modalCtx.key).filter(x => x.id !== modalCtx.id);
+      if(!state.workouts[modalCtx.key].length) delete state.workouts[modalCtx.key];
+      save(); modalCtx = null; renderModal(); render(); break;
+    case 'erange': ui.eRange = el.dataset.r; render(); break;
+    case 'usefa': { const v = Number(el.dataset.v); if(v >= 1.1 && v <= 2.0){ state.settings.faBase = v; save(); render(); } break; }
     case 'xadd': modalCtx = { kind:'extra', key, id:null }; renderModal(); break;
     case 'xedit': modalCtx = { kind:'extra', key, id }; renderModal(); break;
     case 'xsize':
@@ -1181,6 +1409,7 @@ document.addEventListener('click', async ev => {
         if(!s.meals || !s.settings || !s.log) throw new Error('formato inválido');
         state = { ...DEFAULT_STATE(), ...s, settings: { ...DEFAULT_STATE().settings, ...s.settings } };
         if(s.planV === undefined) state.planV = 1;
+        state.workouts = migrateWorkouts(state.workouts);
         save(); notice = { backup:'Backup restaurado.' };
       }catch(e){ notice = { backup:'Backup inválido: ' + e.message, backupErr:true }; }
       render(); break;
@@ -1200,7 +1429,13 @@ document.addEventListener('change', ev => {
     if(['goalValue','tolerance','extrasMax'].includes(k)) v = Math.max(0, Number(v) || 0);
     if(k === 'height'){ const n = numv(v); v = n && n > 50 && n < 250 ? n : null; }
     if(k === 'server') v = String(v).trim() || 'https://ntfy.sh';
-    if(k === 'fa') v = Number(v) || 1.55;
+    if(k === 'fa' || k === 'faBase') v = Number(v) || 1.3;
+    if(k.startsWith('gym_') || k.startsWith('run_')){
+      const [o, f] = k.split('_');
+      if(f === 'pace' && !/^\d{1,2}:\d{2}$/.test(String(v).trim())){ alert('Use o formato min:seg, por exemplo 4:50.'); render(); return; }
+      state.settings[o] = { ...state.settings[o], [f]: f === 'pace' ? String(v).trim() : (Number(v) || 0) };
+      save(); render(); return;
+    }
     if(k === 'sex' || k === 'birth') v = v || null;
     if(k.startsWith('ek_')){ state.settings.extraKcal = { ...state.settings.extraKcal, [k.slice(3)]: Math.max(0, Number(v) || 0) }; save(); render(); return; }
     state.settings[k] = v; save(); render();
@@ -1287,6 +1522,8 @@ const $tabs = document.getElementById('tabs');
 const $ = s => document.querySelector(s);
 
 $modal.addEventListener('click', e => { if(e.target === $modal){ modalCtx = null; renderModal(); } });
+
+document.addEventListener('input', ev => { if(['sMin', 'sKm', 'sPace'].includes(ev.target.id)) sessPreview(); });
 
 render();
 schedule();
