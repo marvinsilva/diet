@@ -771,7 +771,7 @@ function renderSettings(){
         <div><label class="f" style="margin-top:0">Intensidade</label><select data-set="gym_met">${GYM_LEVELS.map(([v, l]) => `<option value="${v}" ${Number(g.gym.met) === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
       </div>
       <div class="row">
-        <div><label class="f">Corrida: km</label><input type="number" inputmode="decimal" step="any" min="0" data-set="run_km" value="${g.run.km}"></div>
+        <div><label class="f">Corrida: km</label><input type="text" inputmode="decimal" autocomplete="off" data-set="run_km" value="${fcom(g.run.km)}"></div>
         <div><label class="f">Pace (min:seg por km)</label><input data-set="run_pace" value="${g.run.pace}" placeholder="4:50"></div>
       </div>
       <p class="note">Valores sugeridos ao registrar (você pode mudar em cada registro). Calorias do treino = gasto acima do repouso: musculação (MET − 1) × peso × horas; corrida 1,0 kcal × peso × km.</p>
@@ -1067,7 +1067,7 @@ function dataCard(){
       <div><label class="f">Nascimento</label><input type="date" data-set="birth" value="${g.birth || ''}"></div>
     </div>
     <label class="f">Altura (cm)</label>
-    <input type="number" inputmode="decimal" step="any" data-set="height" value="${g.height ?? ''}" placeholder="ex.: 175">
+    <input type="text" inputmode="decimal" autocomplete="off" data-set="height" value="${g.height != null ? fcom(g.height) : ''}" placeholder="ex.: 177">
     <label class="f">Atividade no dia a dia (sem contar treino)</label>
     <select data-set="faBase">${FA_PRESETS.map(([v, l]) => `<option value="${v}" ${Number(g.faBase) === v ? 'selected' : ''}>${l}</option>`).join('')}${custom}</select>
     <label class="f">Fórmula do metabolismo basal</label>
@@ -1141,8 +1141,8 @@ function renderBodyModal(){
   $modal.innerHTML = `<div class="sheet">
     <h2>${e ? 'Editar medição' : 'Nova medição'}</h2>
     <label class="f">Data</label><input type="date" id="bDate" value="${e ? e.date : today}" max="${today}">
-    <label class="f">Peso (kg)</label><input type="number" id="bW" inputmode="decimal" step="0.1" value="${e ? e.w : lastW}">
-    <label class="f">% de gordura (opcional)</label><input type="number" id="bF" inputmode="decimal" step="0.1" value="${e && e.bf != null ? e.bf : ''}">
+    <label class="f">Peso (kg)</label><input type="text" id="bW" inputmode="decimal" autocomplete="off" placeholder="ex.: 85,3" value="${e ? fcom(e.w) : (lastW === '' ? '' : fcom(lastW))}">
+    <label class="f">% de gordura (opcional)</label><input type="text" id="bF" inputmode="decimal" autocomplete="off" placeholder="ex.: 17,8" value="${e && e.bf != null ? fcom(e.bf) : ''}">
     <button class="btn primary block" data-act="bsave">Salvar</button>
     ${e ? '<button class="btn block danger" data-act="bdel">Excluir medição</button>' : ''}
     <button class="btn block" data-act="mclose">Cancelar</button></div>`;
@@ -1207,7 +1207,7 @@ function renderSessModal(){
     </div>
     <div id="runF" ${t === 'run' ? '' : 'hidden'}>
       <div class="row">
-        <div><label class="f">Distância (km)</label><input id="sKm" type="number" inputmode="decimal" step="any" min="0" value="${e && e.type === 'run' ? e.km : run.km}"></div>
+        <div><label class="f">Distância (km)</label><input id="sKm" type="text" inputmode="decimal" autocomplete="off" value="${fcom(e && e.type === 'run' ? e.km : run.km)}"></div>
         <div><label class="f">Pace (min:seg/km)</label><input id="sPace" placeholder="4:50" value="${e && e.type === 'run' ? (e.pace || '') : run.pace}"></div>
       </div>
     </div>
@@ -1433,7 +1433,7 @@ document.addEventListener('change', ev => {
     if(k.startsWith('gym_') || k.startsWith('run_')){
       const [o, f] = k.split('_');
       if(f === 'pace' && !/^\d{1,2}:\d{2}$/.test(String(v).trim())){ alert('Use o formato min:seg, por exemplo 4:50.'); render(); return; }
-      state.settings[o] = { ...state.settings[o], [f]: f === 'pace' ? String(v).trim() : (Number(v) || 0) };
+      state.settings[o] = { ...state.settings[o], [f]: f === 'pace' ? String(v).trim() : (numv(v) || 0) };
       save(); render(); return;
     }
     if(k === 'sex' || k === 'birth') v = v || null;
