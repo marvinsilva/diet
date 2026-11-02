@@ -851,7 +851,9 @@ function imcInfo(w){
     : i < 35 ? ['Obesidade grau I','failed'] : i < 40 ? ['Obesidade grau II','failed'] : ['Obesidade grau III','failed'];
   return { i, label:c[0], cls:c[1] };
 }
-function chartCard(id, title, pts, unit, d, color, minPad){
+function chartCard(id, title, pts, unit, d, color, minPad, o){
+  o = o || {};
+  const F = o.fmt || (v => fmtN(v, d));
   if(!pts.length) return `<div class="card"><h2>${title}</h2><div class="sub">Sem medições neste período.</div></div>`;
   const sel = pts.find(p => p.k === ui.sel[id]) || pts[pts.length - 1];
   const W = 340, H = 180, L = 40, R = 14, T = 14, B = 26;
@@ -859,9 +861,9 @@ function chartCard(id, title, pts, unit, d, color, minPad){
   const pad = Math.max((hi - lo) * 0.25, minPad); lo -= pad; hi += pad;
   const t0 = pts[0].t, t1 = pts[pts.length - 1].t;
   const X = t => t1 === t0 ? L + (W - L - R) / 2 : L + (t - t0) / (t1 - t0) * (W - L - R);
-  const Y = y => T + (1 - (y - lo) / (hi - lo)) * (H - T - B);
+  const Y = y => { const f = (y - lo) / (hi - lo); return T + (o.invert ? f : 1 - f) * (H - T - B); };   // invert: valores menores (pace mais rápido) ficam no alto
   const grid = [0, .5, 1].map(f => { const v = lo + (hi - lo) * f, y = Y(v).toFixed(1);
-    return `<line class="gl" x1="${L}" x2="${W - R}" y1="${y}" y2="${y}"/><text class="ax" x="${L - 6}" y="${(+y + 3).toFixed(1)}" text-anchor="end">${fmtN(v, d)}</text>`; }).join('');
+    return `<line class="gl" x1="${L}" x2="${W - R}" y1="${y}" y2="${y}"/><text class="ax" x="${L - 6}" y="${(+y + 3).toFixed(1)}" text-anchor="end">${F(v)}</text>`; }).join('');
   const path = pts.map((p, i) => `${i ? 'L' : 'M'}${X(p.t).toFixed(1)} ${Y(p.y).toFixed(1)}`).join(' ');
   const dots = pts.map(p => `<circle cx="${X(p.t).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="${p.k === sel.k ? 6 : 3.5}" style="fill:${color}${p.k === sel.k ? ';stroke:var(--card);stroke-width:2' : ''}"/>`).join('');
   const hits = pts.map(p => `<circle cx="${X(p.t).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="16" fill="transparent" data-act="pt" data-c="${id}" data-k="${p.k}" style="cursor:pointer"/>`).join('');
@@ -870,11 +872,49 @@ function chartCard(id, title, pts, unit, d, color, minPad){
     ? `<text class="ax" x="${L}" y="${H - 6}">${short(pts[0].k)}</text><text class="ax" x="${W - R}" y="${H - 6}" text-anchor="end">${short(pts[pts.length - 1].k)}</text>`
     : `<text class="ax" x="${L + (W - L - R) / 2}" y="${H - 6}" text-anchor="middle">${short(pts[0].k)}</text>`;
   const dv = pts[pts.length - 1].y - pts[0].y;
-  const delta = pts.length > 1 ? `<div class="sub">No período: ${dv >= 0 ? '+' : '−'}${fmtN(Math.abs(dv), d)} ${unit}</div>` : '';
+  const delta = pts.length > 1
+    ? `<div class="sub">${o.delta ? o.delta(dv) : `No período: ${dv >= 0 ? '+' : '−'}${fmtN(Math.abs(dv), d)} ${unit}`}</div>` : '';
   return `<div class="card"><h2>${title}</h2>
     <svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Gráfico de ${title}">${grid}<path class="ln" d="${path}" style="stroke:${color}"/>${dots}${xl}${hits}</svg>
-    <div class="readout"><b>${fmtN(sel.y, d)} ${unit}</b> · ${fmtDate(sel.k)}</div>${delta}</div>`;
+    <div class="readout"><b>${F(sel.y)}${unit ? ' ' + unit : ''}</b> · ${fmtDate(sel.k)}${sel.info ? ' · ' + esc(sel.info) : ''}</div>${delta}${o.extra || ''}</div>`;
 }
+
+/* ---------- pace das corridas ---------- */
+const fmtPace = sec => { const t = Math.round(sec); return Math.floor(t / 60) + ':' + pad(t % 60); };
+function rangeCut(){ if(ui.range === 'all') return ''; const d = new Date(); d.setDate(d.getDate() - Number(ui.range)); return dayKey(d); }
+function runData(){             // um ponto por dia (pace médio ponderado pela distância)
+  const cut = rangeCut(), pts = []; let runs = 0, km = 0, noPace = 0;
+  Object.keys(state.workouts).sort().forEach(k => {
+    if(k < cut) return;
+    const rs = sess(k).filter(x => x.type === 'run');
+    const ok = rs.filter(x => paceSecs(x.pace) && Number(x.km) > 0);
+    noPace += rs.length - ok.length;
+    if(!ok.length) return;
+    const dist = ok.reduce((a, x) => a + Number(x.km), 0);
+    const secs = ok.reduce((a, x) => a + paceSecs(x.pace) * Number(x.km), 0);
+    runs += ok.length; km += dist;
+    pts.push({ k, t: parseKey(k).getTime(), y: secs / dist, info: `${fmtN(dist, 1)} km` });
+  });
+  return { pts, runs, km, noPace };
+}
+function paceCard(){
+  const any = Object.keys(state.workouts).some(k => sess(k).some(x => x.type === 'run'));
+  if(!any) return `<div class="card"><h2>Pace da corrida</h2><div class="sub">Registre suas corridas em Hoje > "+ Registrar treino ou corrida" (com o pace) para acompanhar a evolução aqui.</div></div>`;
+  const R = runData();
+  if(!R.pts.length) return `<div class="card"><h2>Pace da corrida</h2><div class="sub">Nenhuma corrida com pace neste período.</div></div>`;
+  const best = R.pts.reduce((a, p) => p.y < a.y ? p : a, R.pts[0]);
+  const extra = `<div class="stats auto" style="margin-top:12px">
+      <div class="stat"><b>${fmtPace(best.y)}</b><span>melhor pace (${fmtDate(best.k).slice(0, 5)})</span></div>
+      <div class="stat"><b>${R.runs}</b><span>${R.runs === 1 ? 'corrida' : 'corridas'}</span></div>
+      <div class="stat"><b>${fmtN(R.km, 1)}</b><span>km no período</span></div></div>
+      ${R.noPace ? `<p class="note">${pl(R.noPace, 'corrida sem pace não aparece', 'corridas sem pace não aparecem')} no gráfico.</p>` : ''}
+      <p class="note">Menor é melhor: o eixo é invertido, então o pace mais rápido fica no alto. Dias com mais de uma corrida mostram o pace médio.</p>`;
+  return chartCard('p', 'Pace da corrida', R.pts, '/km', 0, 'var(--accent)', 5, {
+    fmt: fmtPace, invert: true, extra,
+    delta: dv => `No período: ${Math.abs(Math.round(dv))} s/km ${dv < 0 ? 'mais rápido' : dv > 0 ? 'mais lento' : '(igual)'}`,
+  });
+}
+
 /* ---------- Energia: comendo × gastando ---------- */
 const FA_PRESETS = [[1.2,'Sedentário (1,2)'],[1.3,'Pouco ativo (1,3)'],[1.4,'Ativo no dia a dia (1,4)'],[1.5,'Muito ativo, trabalho físico (1,5)']];
 const GYM_LEVELS = [[3.0,'Leve (3,0 MET)'],[4.0,'Moderado (4,0 MET)'],[5.5,'Intenso (5,5 MET)']];
@@ -1130,7 +1170,8 @@ function renderWeight(){
       ${chartCard('w', 'Peso', mk(rng, x => x.w), 'kg', 1, 'var(--accent)', 0.5)}
       ${withBF.length ? chartCard('f', '% de gordura', mk(withBF, x => x.bf), '%', 1, 'var(--warn)', 0.5) : ''}
       ${withBF.length ? chartCard('m', 'Massa magra', mk(withBF, x => x.w * (1 - x.bf / 100)), 'kg', 1, 'var(--ok)', 0.5) : ''}
-      <div class="card"><h2>Medições</h2>${list}<p class="note">Toque em uma medição para editar ou excluir.</p></div>` : ''}`;
+      ${paceCard()}
+      <div class="card"><h2>Medições</h2>${list}<p class="note">Toque em uma medição para editar ou excluir.</p></div>` : paceCard()}`;
 }
 
 function renderBodyModal(){
